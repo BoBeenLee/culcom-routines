@@ -1,0 +1,46 @@
+name: Gemini
+
+on:
+  workflow_dispatch:
+  # 6개월 미사용 만료 방지 + 정기 실행이 필요하면 주석 해제
+  # schedule:
+  #   - cron: '0 0 * * 1'  # 매주 월요일 00:00 UTC
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Restore Gemini OAuth credentials
+        env:
+          GEMINI_OAUTH_CREDS: ${{ secrets.GEMINI_OAUTH_CREDS }}
+        run: |
+          mkdir -p ~/.gemini
+          printf '%s' "$GEMINI_OAUTH_CREDS" | base64 -d > ~/.gemini/oauth_creds.json
+          chmod 600 ~/.gemini/oauth_creds.json
+          cat > ~/.gemini/settings.json <<'JSON'
+          {
+            "security": {
+              "auth": {
+                "selectedType": "oauth-personal"
+              }
+            }
+          }
+          JSON
+          cat > ~/.gemini/google_accounts.json <<'JSON'
+          {
+            "active": "cultisttp@gmail.com",
+            "old": []
+          }
+          JSON
+
+      - name: Install Gemini CLI
+        run: npm install -g @google/gemini-cli@0.41.1
+
+      - name: Smoke test
+        run: gemini --yolo -p "Reply with exactly: ok"
