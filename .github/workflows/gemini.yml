@@ -43,5 +43,7 @@ jobs:
         run: npm install -g @google/gemini-cli@0.41.1
 
       - name: Smoke test
+        env:
+          GEMINI_CLI_TRUST_WORKSPACE: 'true'
         run: |
           gemini --yolo -p "Reply with exactly ok"
