@@ -141,10 +141,39 @@ jobs:
           echo "trends cache hit for ${{ steps.tkey.outputs.when }} — outputs/trends.json 재사용"
           jq . outputs/trends.json | head -30
 
-      - name: Generate drafts
+      - name: Generate drafts (per-channel artifacts only)
         env:
           GEMINI_CLI_TRUST_WORKSPACE: 'true'
         run: node flows/blog-draft/scripts/draft.mjs
+
+      - name: Publish naver preview gist
+        id: preview
+        if: hashFiles('outputs/naver.html') != ''
+        env:
+          # gh gist 사용을 위해 ATTACHMENTS_PAT(repo+gist scope)을 우선 사용. 없으면 GITHUB_TOKEN(불충분, 실패 가능).
+          GH_TOKEN: ${{ secrets.ATTACHMENTS_PAT || secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -e
+          gist_url=$(gh gist create outputs/naver.html \
+            --desc "blog-draft preview #${ISSUE_NUMBER}" \
+            --filename naver.html)
+          gist_id=$(basename "$gist_url")
+          echo "gist_url=$gist_url"
+          echo "gist_id=$gist_id"
+          # history[0].version 은 가장 최신 커밋의 SHA
+          sha=$(gh api gists/$gist_id --jq '.history[0].version')
+          raw="https://gistcdn.githack.com/${OWNER}/${gist_id}/raw/${sha}/naver.html"
+          echo "raw_url=${raw}"
+          echo "gist_url=${gist_url}" >> "$GITHUB_OUTPUT"
+          echo "raw_url=${raw}" >> "$GITHUB_OUTPUT"
+
+      - name: Compose issue comment
+        env:
+          NAVER_PREVIEW_URL: ${{ steps.preview.outputs.raw_url }}
+          NAVER_PREVIEW_GIST_URL: ${{ steps.preview.outputs.gist_url }}
+        run: node flows/blog-draft/scripts/compose-comment.mjs
 
       - name: Comment drafts on issue
         env:

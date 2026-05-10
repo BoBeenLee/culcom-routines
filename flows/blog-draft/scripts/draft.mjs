@@ -212,81 +212,17 @@ async function main() {
         `[draft] wrote ${mdFile} + ${htmlFile} (title=${title.length}자, bodyMd=${bodyMd.length}자, html=${html.length}자)`,
       );
     } else {
-      drafts[channel] = { title: "", body: raw };
+      drafts[channel] = { title: "", body: raw, html: "" };
       const file = path.join(OUT_DIR, `${channel}.md`);
       await writeFile(file, raw + "\n", "utf8");
       console.log(`[draft] wrote ${file} (${raw.length} chars)`);
     }
   }
 
-  // Issue 코멘트 묶음 — 인스타 → 네이버 순서, 큰 제목으로 가독성 강화
-  const lines = [];
-  lines.push(`# 📝 자동 생성 초안`);
-  lines.push("");
-  lines.push(`- **주제**: ${issue.subject}`);
-  lines.push(`- **분위기**: ${issue.vibe || "(없음)"}`);
-  lines.push(`- **기준일**: ${issue.when}`);
-  lines.push(`- **이미지**: ${images.downloaded.length}장`);
-  lines.push("");
-  lines.push(`<details><summary>참고한 트렌드 키워드</summary>`);
-  lines.push("");
-  lines.push("```json");
-  lines.push(JSON.stringify(trends, null, 2));
-  lines.push("```");
-  lines.push("");
-  lines.push("</details>");
-  lines.push("");
-  lines.push("---");
-  lines.push("");
-  const channelEmoji = { insta: "📸", naver: "📰" };
-  for (const channel of issue.channels) {
-    lines.push(`# ${channelEmoji[channel]} ${channelLabel[channel]}`);
-    lines.push("");
-    if (channel === "naver" && drafts[channel].title) {
-      lines.push("## 📝 제목");
-      lines.push("");
-      lines.push(drafts[channel].title);
-      lines.push("");
-      lines.push("## 📄 본문 (마크다운 미리보기)");
-      lines.push("");
-    }
-    lines.push(drafts[channel].body);
-    lines.push("");
-    if (channel === "naver" && drafts[channel].html) {
-      lines.push("<details>");
-      lines.push(
-        "<summary>🧩 네이버 에디터 호환 HTML (mtnb 변환 결과 — 클릭해서 펼친 뒤 복사)</summary>",
-      );
-      lines.push("");
-      lines.push("```html");
-      lines.push(drafts[channel].html);
-      lines.push("```");
-      lines.push("");
-      lines.push("</details>");
-      lines.push("");
-    }
-    lines.push("---");
-    lines.push("");
-  }
-  lines.push(
-    `> 검토 후 그대로 또는 수정해 ${issue.channels.map((c) => channelLabel[c]).join(" → ")} 순으로 게시하세요.`,
-  );
-  if (issue.channels.includes("naver")) {
-    lines.push(
-      "> 📰 네이버 게시 방법:",
-    );
-    lines.push(
-      "> - **간편**: 위 \"본문 (마크다운 미리보기)\" 섹션을 그대로 복사해 [mtnb.dev](https://mtnb.dev)에 붙여넣고 \"서식 복사\" 버튼 → 네이버 에디터에 붙여넣기.",
-    );
-    lines.push(
-      "> - **직접**: \"네이버 에디터 호환 HTML\" 블록을 펼쳐 클립보드의 HTML을 그대로 복사해 네이버 에디터에 붙여넣기.",
-    );
-    lines.push(
-      "> - 본문 안의 사진(\`![이미지 #N: ...](...)\`)은 미리보기용입니다. 네이버에 붙여넣은 뒤 그 자리에 실제 사진을 드래그해 교체해 주세요.",
-    );
-  }
-  await writeFile(path.join(OUT_DIR, "comment.md"), lines.join("\n"), "utf8");
-  console.log(`[draft] wrote outputs/comment.md`);
+  // 채널별 산출물을 outputs/drafts.json 으로 저장 → compose-comment.mjs 가 읽어서 코멘트 조립.
+  const draftsJson = path.join(OUT_DIR, "drafts.json");
+  await writeFile(draftsJson, JSON.stringify(drafts, null, 2), "utf8");
+  console.log(`[draft] wrote ${draftsJson}`);
 }
 
 main().catch((e) => {
