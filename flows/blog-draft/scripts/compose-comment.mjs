@@ -74,20 +74,6 @@ for (const channel of issue.channels) {
   lines.push(draft.body);
   lines.push("");
 
-  if (channel === "naver" && draft.html) {
-    lines.push("<details>");
-    lines.push(
-      "<summary>🧩 네이버 에디터 호환 HTML (mtnb 변환 결과 — fallback 용)</summary>",
-    );
-    lines.push("");
-    lines.push("```html");
-    lines.push(draft.html);
-    lines.push("```");
-    lines.push("");
-    lines.push("</details>");
-    lines.push("");
-  }
-
   lines.push("---");
   lines.push("");
 }
@@ -103,7 +89,7 @@ if (issue.channels.includes("naver")) {
     );
   } else {
     lines.push(
-      "> 📰 네이버: 코멘트 안 마크다운/HTML을 [mtnb.dev](https://mtnb.dev)에 붙여넣고 \"서식 복사\" → 네이버 에디터에 붙여넣기.",
+      "> 📰 네이버: 코멘트 안 마크다운을 [mtnb.dev](https://mtnb.dev)에 붙여넣고 \"서식 복사\" → 네이버 에디터에 붙여넣기.",
     );
   }
   lines.push(
