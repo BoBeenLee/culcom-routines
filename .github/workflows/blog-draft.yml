@@ -1,0 +1,101 @@
+name: Blog Draft
+
+on:
+  issues:
+    types: [opened, edited, labeled]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  draft:
+    # draft-request 라벨이 있는 이슈만, 그리고 이미 drafted 처리된 것은 재실행 방지
+    if: |
+      contains(github.event.issue.labels.*.name, 'draft-request') &&
+      !contains(github.event.issue.labels.*.name, 'drafted')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install deps
+        run: npm install --no-audit --no-fund
+
+      - name: Restore Gemini OAuth credentials
+        env:
+          GEMINI_OAUTH_CREDS: ${{ secrets.GEMINI_OAUTH_CREDS }}
+        run: |
+          mkdir -p ~/.gemini
+          printf '%s' "$GEMINI_OAUTH_CREDS" | base64 -d > ~/.gemini/oauth_creds.json
+          chmod 600 ~/.gemini/oauth_creds.json
+          cat > ~/.gemini/settings.json <<'JSON'
+          {
+            "security": {
+              "auth": {
+                "selectedType": "oauth-personal"
+              }
+            }
+          }
+          JSON
+          cat > ~/.gemini/google_accounts.json <<'JSON'
+          {
+            "active": "cultisttp@gmail.com",
+            "old": []
+          }
+          JSON
+
+      - name: Install Gemini CLI
+        run: npm install -g @google/gemini-cli@0.41.1
+
+      - name: Parse issue body
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: node scripts/parse-issue.mjs
+
+      - name: Apply channel labels
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          for ch in $(jq -r '.channels[]' outputs/issue.json); do
+            echo "label: $ch"
+            gh issue edit "$ISSUE_NUMBER" --add-label "$ch" || true
+          done
+
+      - name: Download attached images
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/extract-images.mjs
+
+      - name: Fetch trends (Gemini + web search)
+        env:
+          GEMINI_CLI_TRUST_WORKSPACE: 'true'
+        run: node scripts/fetch-trends.mjs
+
+      - name: Generate drafts
+        env:
+          GEMINI_CLI_TRUST_WORKSPACE: 'true'
+        run: node scripts/draft.mjs
+
+      - name: Comment drafts on issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          gh issue comment "$ISSUE_NUMBER" --body-file outputs/comment.md
+          gh issue edit "$ISSUE_NUMBER" --add-label drafted
+
+      - name: On failure, comment error
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue comment "$ISSUE_NUMBER" --body "❌ 초안 생성 실패. 로그: $RUN_URL"
+          gh issue edit "$ISSUE_NUMBER" --add-label error || true
