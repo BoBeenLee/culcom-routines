@@ -147,7 +147,16 @@ function buildPrompt({ channel, style }) {
     "===== 작업 =====",
     `위 사진(들)과 입력을 바탕으로 ${channelLabel[channel]} 초안을 작성하라.`,
     "스타일 가이드의 길이·구조·톤을 우선 따르되, 이미지 수 기반 분량 가이드를 함께 만족시켜라.",
-    "출력은 운영자가 그대로 복사해 붙여넣을 수 있는 본문 텍스트만. 코드블록·머리말·맺음 설명 금지.",
+    "",
+    "===== 출력 규칙 (엄수) =====",
+    "다음 markers 사이에 운영자가 그대로 복사할 본문 텍스트만 한 번 출력. 다른 어떤 것도 출력 금지:",
+    "- 사고 과정·관찰·계획·draft 후보 비교 출력 금지",
+    "- markers 밖에 한 글자도 쓰지 말 것 (앞뒤 안내·맺음말·코드블록·markdown 헤더 모두 금지)",
+    "- markers 자체를 본문 안에 다시 넣지 말 것",
+    "",
+    "<<<DRAFT_START>>>",
+    "여기에 본문 텍스트만",
+    "<<<DRAFT_END>>>",
   ].join("\n");
 }
 
@@ -167,6 +176,20 @@ function runGemini(prompt) {
       else resolve(out.trim());
     });
   });
+}
+
+// Gemini 출력에서 <<<DRAFT_START>>> ... <<<DRAFT_END>>> 사이 본문만 추출.
+// 모델이 CoT (`_pq>thought`, "CRITICAL INSTRUCTION", 관찰·계획·draft 후보 비교 등)
+// 를 stdout 에 흘려보내는 경우가 있어 markers 기반 추출이 필수.
+// markers 가 없으면 best-effort cleanup 으로 fallback.
+function extractDraft(raw) {
+  const m = raw.match(/<<<DRAFT_START>>>([\s\S]*?)<<<DRAFT_END>>>/);
+  if (m) return m[1].trim();
+  // markers 미발견 — Gemini 가 markers 자체도 무시한 경우. 가장 마지막 빈 줄 이후
+  // 텍스트가 보통 최종 답이라 그 부분만 시도. 그래도 안 잡히면 raw 통째로 반환.
+  const startIdx = raw.indexOf("<<<DRAFT_START>>>");
+  if (startIdx >= 0) return raw.slice(startIdx + "<<<DRAFT_START>>>".length).trim();
+  return raw.trim();
 }
 
 // 네이버 본문의 [이미지 #N: 묘사] 마커를 ![이미지 #N: 묘사](원본 URL)로 치환.
@@ -217,7 +240,12 @@ async function main() {
     const prompt = buildPrompt({ channel, style });
     let raw;
     try {
-      raw = await runGemini(prompt);
+      const geminiOut = await runGemini(prompt);
+      raw = extractDraft(geminiOut);
+      if (raw !== geminiOut.trim()) {
+        const stripped = geminiOut.length - raw.length;
+        console.log(`[draft] extracted from markers (${stripped} chars CoT/wrapper stripped)`);
+      }
     } catch (e) {
       raw = `(생성 실패: ${e.message})`;
     }
