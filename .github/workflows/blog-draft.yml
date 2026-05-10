@@ -8,12 +8,41 @@ permissions:
   contents: read
   issues: write
 
+# 같은 이슈에 대해 opened + labeled 가 동시에 발행되어 중복 실행되는 것을 직렬화한다.
+# cancel-in-progress: false → 두 번째 런은 첫 번째 런이 끝난 뒤 시작하고, precheck에서 drafted 라벨을 보고 종료.
+concurrency:
+  group: blog-draft-issue-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
 jobs:
-  draft:
-    # draft-request 라벨이 있는 이슈만, 그리고 이미 drafted 처리된 것은 재실행 방지
+  precheck:
+    # 1차 가드: 이벤트 시점 스냅샷에서 빠르게 거름
     if: |
       contains(github.event.issue.labels.*.name, 'draft-request') &&
       !contains(github.event.issue.labels.*.name, 'drafted')
+    runs-on: ubuntu-latest
+    outputs:
+      proceed: ${{ steps.check.outputs.proceed }}
+    steps:
+      - name: Re-check label state at runtime (live API)
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          labels=$(gh issue view ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --json labels --jq '.labels[].name' | tr '\n' ' ')
+          echo "current labels: ${labels}"
+          if echo "${labels}" | grep -qw "drafted"; then
+            echo "이미 drafted — 중복 실행 종료"
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  draft:
+    needs: precheck
+    if: needs.precheck.outputs.proceed == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
