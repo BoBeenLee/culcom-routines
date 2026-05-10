@@ -142,9 +142,9 @@ function runGemini(prompt) {
   });
 }
 
-// 네이버 본문에 [이미지 #N: 묘사] 마커 뒤에 원본 이미지 URL을 markdown으로 주입.
-// GitHub 코멘트가 렌더될 때 운영자가 사진을 인라인으로 미리 볼 수 있게 한다.
-// 운영자가 네이버 에디터에 붙여넣을 때는 ![](url) 라인을 지우고 실제 사진으로 대체.
+// 네이버 본문의 [이미지 #N: 묘사] 마커를 ![이미지 #N: 묘사](원본 URL)로 치환.
+// GitHub 코멘트가 렌더될 때 사진이 그 자리에 인라인으로 보인다.
+// 운영자는 네이버 에디터에 붙여넣을 때 ![]() 라인 한 줄만 지우고 같은 자리에 사진을 끌어 올린다.
 function injectImageUrlsForNaver(draft) {
   return draft.replace(
     /\[이미지\s*#(\d+)(?::\s*([^\]]*))?\]/g,
@@ -153,7 +153,7 @@ function injectImageUrlsForNaver(draft) {
       const img = images.downloaded[idx];
       if (!img) return match;
       const alt = desc ? `이미지 #${n}: ${desc}` : `이미지 #${n}`;
-      return `${match}\n\n![${alt}](${img.url})\n`;
+      return `![${alt}](${img.url})`;
     },
   );
 }
@@ -213,7 +213,7 @@ async function main() {
   );
   if (issue.channels.includes("naver")) {
     lines.push(
-      "> 📰 네이버 본문 안의 \`![이미지 #N: ...](...)\` 라인은 GitHub 코멘트에서 사진을 미리 보기 위한 것입니다. 네이버 에디터에 붙여넣을 때는 그 줄을 지우고 같은 위치에 사진을 직접 끌어 올려 주세요.",
+      "> 📰 네이버 본문 안의 사진(\`![이미지 #N: ...](...)\`)은 GitHub 코멘트 미리보기용입니다. 네이버 에디터로 붙여넣을 때는 그 한 줄을 지우고 같은 자리에 사진을 직접 끌어 올려 주세요.",
     );
   }
   await writeFile(path.join(OUT_DIR, "comment.md"), lines.join("\n"), "utf8");
