@@ -62,6 +62,18 @@ function replaceImageRefs(body, logNo) {
   return { body, count: n };
 }
 
+// importer 출력의 카드형 chrome 블록을 placeholder 로 치환.
+// raw chrome (`[**카카오톡** ... pf-link.kakao.com](url)`) 은 Naver 에디터가
+// 자동 생성하는 위젯이라 reference 샘플에 그대로 두면 LLM 이 학습해서
+// draft 가 같은 chrome 을 출력하게 된다. 운영자가 네이버 에디터에서 카드를
+// 직접 삽입할 자리만 표시되도록 placeholder 로 치환한다.
+function replaceWidgetChrome(md) {
+  return md
+    .replace(/\[\*\*카카오톡\*\*[^\]]*?pf-link\.kakao\.com\]\([^)]+\)/g, "[카카오톡 카드]")
+    .replace(/\[\*\*컬컴 하남점\*\*[^\]]*?\]\(#\)/g, "[매장 박스]")
+    .replace(/\[\*\*네이버지도\*\*[^\]]*?map\.naver\.com\]\([^)]+\)/g, "[지도 위젯]");
+}
+
 // importer 의 출력에 잔존하는 위젯 chrome 라인을 마지막으로 정리한다.
 // (cheerio 단계에서 스트립 안 한 행들)
 const WIDGET_CHROME = new Set([
@@ -113,7 +125,10 @@ async function migrate(logNo) {
   // 이미지 마커 치환을 먼저 — 그래야 `![](...)` 의 빈 alt `[]` 가 cleanup 의
   // 빈 링크 strip 에 휘말리지 않는다.
   const { body: withMarkers, count } = replaceImageRefs(body, logNo);
-  const bodyWithMarkers = cleanupChrome(withMarkers);
+  // 위젯 chrome 카드를 placeholder 로 치환 (cleanupChrome 전에 — chrome 안의
+  // 라인들이 cleanupChrome 의 line filter 에 미리 잡혀버리지 않도록).
+  const bodyWithPlaceholders = replaceWidgetChrome(withMarkers);
+  const bodyWithMarkers = cleanupChrome(bodyWithPlaceholders);
 
   const md = [
     `# ${title}`,
