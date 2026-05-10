@@ -1,6 +1,6 @@
 name: 블로그/인스타 초안 요청
 description: 사진과 메모를 올리면 네이버 블로그·인스타 초안을 자동 생성합니다.
-title: "[YYYY-MM-DD] 스터디 블로그·인스타 자동 생성"
+title: "[2026-05-10] 스터디 블로그·인스타 자동 생성"
 labels: ["draft-request"]
 body:
   - type: markdown
