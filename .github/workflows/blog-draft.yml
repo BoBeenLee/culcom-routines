@@ -55,7 +55,7 @@ jobs:
         env:
           ISSUE_BODY: ${{ github.event.issue.body }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
-        run: node scripts/parse-issue.mjs
+        run: node flows/blog-draft/scripts/parse-issue.mjs
 
       - name: Apply channel labels
         env:
@@ -82,17 +82,17 @@ jobs:
           # Private 레포의 user-attachments는 자동 발급되는 GITHUB_TOKEN으로 접근 불가.
           # 개인 PAT(repo scope)를 ATTACHMENTS_PAT secret에 등록하면 우선 사용한다.
           GITHUB_TOKEN: ${{ secrets.ATTACHMENTS_PAT || secrets.GITHUB_TOKEN }}
-        run: node scripts/extract-images.mjs
+        run: node flows/blog-draft/scripts/extract-images.mjs
 
       - name: Fetch trends (Gemini + web search)
         env:
           GEMINI_CLI_TRUST_WORKSPACE: 'true'
-        run: node scripts/fetch-trends.mjs
+        run: node flows/blog-draft/scripts/fetch-trends.mjs
 
       - name: Generate drafts
         env:
           GEMINI_CLI_TRUST_WORKSPACE: 'true'
-        run: node scripts/draft.mjs
+        run: node flows/blog-draft/scripts/draft.mjs
 
       - name: Comment drafts on issue
         env:

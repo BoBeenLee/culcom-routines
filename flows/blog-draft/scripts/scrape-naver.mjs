@@ -1,14 +1,16 @@
 #!/usr/bin/env node
-// 네이버 블로그(blog.naver.com/culcom-) 최근 글 수집 → prompts/samples/naver/
-// 1회성 스크립트. 실행: node scripts/scrape-naver.mjs [--limit 5]
+// 네이버 블로그(blog.naver.com/culcom-) 최근 글 수집 → flows/blog-draft/prompts/samples/naver/
+// 1회성 스크립트. 실행: node flows/blog-draft/scripts/scrape-naver.mjs [--limit 5]
 
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import * as cheerio from "cheerio";
 
+const FLOW_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const BLOG_ID = "culcom-";
 const RSS_URL = `https://rss.blog.naver.com/${BLOG_ID}.xml`;
-const OUT_DIR = path.resolve("prompts/samples/naver");
+const OUT_DIR = path.join(FLOW_DIR, "prompts/samples/naver");
 const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
 

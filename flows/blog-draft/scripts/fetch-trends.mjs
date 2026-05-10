@@ -5,9 +5,11 @@
 import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
+const FLOW_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ISSUE_JSON = path.resolve("outputs/issue.json");
-const TREND_PROMPT = path.resolve("prompts/trend-research.md");
+const TREND_PROMPT = path.join(FLOW_DIR, "prompts/trend-research.md");
 const OUT = path.resolve("outputs/trends.json");
 
 await mkdir(path.dirname(OUT), { recursive: true });

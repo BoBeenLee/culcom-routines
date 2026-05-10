@@ -1,24 +1,27 @@
 #!/usr/bin/env node
 // 채널별로 Gemini를 호출해 초안을 생성한다.
 // 입력: outputs/issue.json, outputs/trends.json, outputs/images.json
-//       prompts/system.md, prompts/{naver|ig}-style.md
+//       flows/blog-draft/prompts/system.md, prompts/{naver|ig}-style.md
 // 출력: outputs/{channel}.md, outputs/comment.md
 
 import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const ROOT = process.cwd();
+const FLOW_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const PROMPTS_DIR = path.join(FLOW_DIR, "prompts");
 const OUT_DIR = path.resolve("outputs");
 
 const issue = JSON.parse(await readFile(path.join(OUT_DIR, "issue.json"), "utf8"));
 const trends = JSON.parse(await readFile(path.join(OUT_DIR, "trends.json"), "utf8"));
 const images = JSON.parse(await readFile(path.join(OUT_DIR, "images.json"), "utf8"));
-const systemMd = await readFile(path.resolve("prompts/system.md"), "utf8");
+const systemMd = await readFile(path.join(PROMPTS_DIR, "system.md"), "utf8");
 
 const styleFiles = {
-  naver: "prompts/naver-style.md",
-  insta: "prompts/ig-style.md",
+  naver: "naver-style.md",
+  insta: "ig-style.md",
 };
 const channelLabel = {
   naver: "네이버 블로그",
@@ -27,14 +30,53 @@ const channelLabel = {
 
 async function readStyle(channel) {
   try {
-    return await readFile(path.resolve(styleFiles[channel]), "utf8");
+    return await readFile(path.join(PROMPTS_DIR, styleFiles[channel]), "utf8");
   } catch {
     return `# ${channelLabel[channel]} 스타일 가이드\n(가이드 파일이 비어있음 — 일반 톤으로 작성)\n`;
   }
 }
 
+// 네이버 블로그: 이미지 수에 따른 분량·구조 가이드
+function naverLengthGuide(imageCount) {
+  if (imageCount <= 1) {
+    return [
+      "- 분량: 본문 1,200~1,800자.",
+      "- 구조: 한 가지 인상·에피소드에 집중하는 짧은 후기. 단락 5~7개.",
+      "- 사진 관련 묘사는 한 곳(중간)에서 짧게 처리한다.",
+    ].join("\n");
+  }
+  if (imageCount <= 3) {
+    return [
+      `- 분량: 본문 2,000~2,800자. (이미지 ${imageCount}장)`,
+      "- 구조: 표준 후기 골격. 단락 7~10개.",
+      "- 각 사진을 자연스러운 흐름에 1번씩 인용하며 본문 위치를 [이미지: ...] 한 줄로 표시한다.",
+    ].join("\n");
+  }
+  return [
+    `- 분량: 본문 3,000~3,800자. (이미지 ${imageCount}장)`,
+    "- 구조: 풍성한 후기. 단락 10~14개.",
+    "- 큰 흐름을 2~4개 소제목 섹션으로 나누고, 사진 별로 짧은 캡션 톤 코멘트를 달아 [이미지: ...] 라인을 본문 안에 분산 배치한다.",
+    "- 마지막 섹션에 추천 대상·다음 주 예고 같은 가벼운 마무리를 추가한다.",
+  ].join("\n");
+}
+
+// 인스타그램: 이미지 수에 따른 가이드 (간단)
+function igLengthGuide(imageCount) {
+  return [
+    `- 첨부 이미지 ${imageCount}장.`,
+    imageCount > 1
+      ? "- 캐러셀로 올라갈 가능성이 높으니 첫 사진을 후크로 잡고 캡션은 캐러셀 전체를 아우르는 한 마디로 작성."
+      : "- 단일 사진 게시. 사진 한 장의 분위기를 짧게 묘사.",
+  ].join("\n");
+}
+
 function buildPrompt({ channel, style }) {
-  const imageRefs = images.downloaded.map((d) => `@${path.relative(ROOT, d.file)}`).join(" ");
+  const imageCount = images.downloaded.length;
+  const imageRefs = images.downloaded
+    .map((d, i) => `@${path.relative(ROOT, d.file)} (#${i + 1})`)
+    .join(" ");
+  const lengthGuide =
+    channel === "naver" ? naverLengthGuide(imageCount) : igLengthGuide(imageCount);
   return [
     imageRefs,
     "",
@@ -43,6 +85,17 @@ function buildPrompt({ channel, style }) {
     "",
     `===== 채널: ${channelLabel[channel]} 스타일 가이드 =====`,
     style,
+    "",
+    `===== 이미지 입력 (총 ${imageCount}장) =====`,
+    "각 사진을 자세히 관찰해 다음을 본문에 반영하라:",
+    "- 분위기·계절감·시간대 (햇빛, 조명, 옷차림)",
+    "- 장소·소품·테이블 위 자료(있을 경우)",
+    "- 인물 수와 활동(대화·필기·웃는 모습 등) — 단, 실명·식별 가능한 외모 묘사 금지",
+    "- 컬컴 하남 매장 인테리어 단서(LP샵/카페 같은 분위기)가 보이면 자연스럽게 반영",
+    "사진에서 확인되지 않는 사실은 만들지 말 것.",
+    "",
+    "===== 분량·구조 가이드 (이미지 수 기반) =====",
+    lengthGuide,
     "",
     "===== 운영자 입력 =====",
     `- 주제: ${issue.subject}`,
@@ -54,7 +107,7 @@ function buildPrompt({ channel, style }) {
     "",
     "===== 작업 =====",
     `위 사진(들)과 입력을 바탕으로 ${channelLabel[channel]} 초안을 작성하라.`,
-    "스타일 가이드의 길이·구조·톤을 우선 따른다.",
+    "스타일 가이드의 길이·구조·톤을 우선 따르되, 이미지 수 기반 분량 가이드를 함께 만족시켜라.",
     "출력은 운영자가 그대로 복사해 붙여넣을 수 있는 본문 텍스트만. 코드블록·머리말·맺음 설명 금지.",
   ].join("\n");
 }
@@ -81,7 +134,7 @@ async function main() {
   await mkdir(OUT_DIR, { recursive: true });
   const drafts = {};
   for (const channel of issue.channels) {
-    console.log(`[draft] channel=${channel}`);
+    console.log(`[draft] channel=${channel}, images=${images.downloaded.length}`);
     const style = await readStyle(channel);
     const prompt = buildPrompt({ channel, style });
     let body;
