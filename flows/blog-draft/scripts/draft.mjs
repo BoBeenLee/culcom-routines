@@ -158,6 +158,18 @@ function injectImageUrlsForNaver(draft) {
   );
 }
 
+// Gemini가 [제목]\n<제목>\n\n[본문]\n<본문> 형식으로 출력하면 두 부분으로 분해.
+// 마커가 없으면 전체를 본문으로 간주하고 제목은 비워둔다.
+function parseNaverOutput(text) {
+  const t = text.replace(/\r\n/g, "\n").trim();
+  const titleM = t.match(/^\[제목\]\s*\n([^\n]+)/);
+  const bodyM = t.match(/\[본문\]\s*\n([\s\S]*)$/);
+  if (titleM && bodyM) {
+    return { title: titleM[1].trim(), body: bodyM[1].trim() };
+  }
+  return { title: "", body: t };
+}
+
 async function main() {
   await mkdir(OUT_DIR, { recursive: true });
   const drafts = {};
@@ -165,19 +177,29 @@ async function main() {
     console.log(`[draft] channel=${channel}, images=${images.downloaded.length}`);
     const style = await readStyle(channel);
     const prompt = buildPrompt({ channel, style });
-    let body;
+    let raw;
     try {
-      body = await runGemini(prompt);
+      raw = await runGemini(prompt);
     } catch (e) {
-      body = `(생성 실패: ${e.message})`;
+      raw = `(생성 실패: ${e.message})`;
     }
     if (channel === "naver") {
-      body = injectImageUrlsForNaver(body);
+      const { title, body } = parseNaverOutput(raw);
+      const bodyWithImages = injectImageUrlsForNaver(body);
+      drafts[channel] = { title, body: bodyWithImages };
+      const file = path.join(OUT_DIR, `naver.md`);
+      await writeFile(
+        file,
+        (title ? `[제목]\n${title}\n\n[본문]\n` : "") + bodyWithImages + "\n",
+        "utf8",
+      );
+      console.log(`[draft] wrote ${file} (title=${title.length}자, body=${bodyWithImages.length}자)`);
+    } else {
+      drafts[channel] = { title: "", body: raw };
+      const file = path.join(OUT_DIR, `${channel}.md`);
+      await writeFile(file, raw + "\n", "utf8");
+      console.log(`[draft] wrote ${file} (${raw.length} chars)`);
     }
-    const file = path.join(OUT_DIR, `${channel}.md`);
-    await writeFile(file, body + "\n", "utf8");
-    drafts[channel] = body;
-    console.log(`[draft] wrote ${file} (${body.length} chars)`);
   }
 
   // Issue 코멘트 묶음 — 인스타 → 네이버 순서, 큰 제목으로 가독성 강화
@@ -203,7 +225,15 @@ async function main() {
   for (const channel of issue.channels) {
     lines.push(`# ${channelEmoji[channel]} ${channelLabel[channel]}`);
     lines.push("");
-    lines.push(drafts[channel]);
+    if (channel === "naver" && drafts[channel].title) {
+      lines.push("## 📝 제목");
+      lines.push("");
+      lines.push(drafts[channel].title);
+      lines.push("");
+      lines.push("## 📄 본문");
+      lines.push("");
+    }
+    lines.push(drafts[channel].body);
     lines.push("");
     lines.push("---");
     lines.push("");
