@@ -63,12 +63,12 @@ const vibe = clean(vibeRaw);
 const today = new Date().toISOString().slice(0, 10);
 const when = clean(whenRaw) || today;
 
-// 채널 결정
+// 채널 결정 — 코멘트·게시 순서는 인스타 먼저, 네이버 나중
 const channels = (() => {
-  if (!channelText || channelText.startsWith("둘 다")) return ["naver", "insta"];
-  if (channelText.includes("네이버")) return ["naver"];
+  if (!channelText || channelText.startsWith("둘 다")) return ["insta", "naver"];
   if (channelText.includes("인스타")) return ["insta"];
-  return ["naver", "insta"]; // 알 수 없으면 둘 다
+  if (channelText.includes("네이버")) return ["naver"];
+  return ["insta", "naver"]; // 알 수 없으면 둘 다
 })();
 
 // 이미지 URL 추출 (마크다운 ![](url) + <img src="..."> + 그냥 https://...github.com/user-attachments/...)

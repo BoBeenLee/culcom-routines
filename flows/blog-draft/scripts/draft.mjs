@@ -38,25 +38,37 @@ async function readStyle(channel) {
 
 // 네이버 블로그: 이미지 수에 따른 분량·구조 가이드
 function naverLengthGuide(imageCount) {
+  const imagePlacement = [
+    "",
+    "[이미지 위치 표기 — 필수]",
+    `- 본문에 첨부된 ${imageCount}장의 사진이 들어갈 자리를 모두 표시한다.`,
+    "- 형식: `[이미지 #N: 한 줄 묘사]` (예: `[이미지 #1: 멤버분들이 둘러앉아 발표 자료를 보는 모습]`)",
+    `- N은 1부터 ${imageCount}까지 정확히 매칭. 같은 번호 두 번 쓰지 말고, 모든 번호가 본문 어딘가에 등장해야 한다.`,
+    "- 한 줄 묘사는 사진을 직접 관찰해 분위기·구도·소품 중심으로 짧게 (15자 이내).",
+    "- 마크다운 이미지 문법 `![](url)` 으로 쓰지 말 것 — 운영자가 네이버 에디터에서 직접 사진을 끌어 올린다.",
+  ].join("\n");
   if (imageCount <= 1) {
     return [
       "- 분량: 본문 1,200~1,800자.",
       "- 구조: 한 가지 인상·에피소드에 집중하는 짧은 후기. 단락 5~7개.",
-      "- 사진 관련 묘사는 한 곳(중간)에서 짧게 처리한다.",
+      "- 사진은 본문 도입 후 한 곳(중간)에 `[이미지 #1: ...]` 한 줄로 위치 표시.",
+      imagePlacement,
     ].join("\n");
   }
   if (imageCount <= 3) {
     return [
       `- 분량: 본문 2,000~2,800자. (이미지 ${imageCount}장)`,
       "- 구조: 표준 후기 골격. 단락 7~10개.",
-      "- 각 사진을 자연스러운 흐름에 1번씩 인용하며 본문 위치를 [이미지: ...] 한 줄로 표시한다.",
+      "- 각 사진을 자연스러운 흐름에 1번씩 인용하며 단락 사이에 위치 표시.",
+      imagePlacement,
     ].join("\n");
   }
   return [
     `- 분량: 본문 3,000~3,800자. (이미지 ${imageCount}장)`,
     "- 구조: 풍성한 후기. 단락 10~14개.",
-    "- 큰 흐름을 2~4개 소제목 섹션으로 나누고, 사진 별로 짧은 캡션 톤 코멘트를 달아 [이미지: ...] 라인을 본문 안에 분산 배치한다.",
+    "- 큰 흐름을 2~4개 소제목 섹션으로 나누고, 사진을 섹션마다 분산 배치.",
     "- 마지막 섹션에 추천 대상·다음 주 예고 같은 가벼운 마무리를 추가한다.",
+    imagePlacement,
   ].join("\n");
 }
 
@@ -149,14 +161,14 @@ async function main() {
     console.log(`[draft] wrote ${file} (${body.length} chars)`);
   }
 
-  // Issue 코멘트 묶음
+  // Issue 코멘트 묶음 — 인스타 → 네이버 순서, 큰 제목으로 가독성 강화
   const lines = [];
-  lines.push(`## 자동 생성 초안`);
+  lines.push(`# 📝 자동 생성 초안`);
   lines.push("");
-  lines.push(`- 주제: ${issue.subject}`);
-  lines.push(`- 분위기: ${issue.vibe || "(없음)"}`);
-  lines.push(`- 기준일: ${issue.when}`);
-  lines.push(`- 이미지: ${images.downloaded.length}장`);
+  lines.push(`- **주제**: ${issue.subject}`);
+  lines.push(`- **분위기**: ${issue.vibe || "(없음)"}`);
+  lines.push(`- **기준일**: ${issue.when}`);
+  lines.push(`- **이미지**: ${images.downloaded.length}장`);
   lines.push("");
   lines.push(`<details><summary>참고한 트렌드 키워드</summary>`);
   lines.push("");
@@ -166,15 +178,18 @@ async function main() {
   lines.push("");
   lines.push("</details>");
   lines.push("");
+  lines.push("---");
+  lines.push("");
+  const channelEmoji = { insta: "📸", naver: "📰" };
   for (const channel of issue.channels) {
-    lines.push(`### ✏️ ${channelLabel[channel]}`);
+    lines.push(`# ${channelEmoji[channel]} ${channelLabel[channel]}`);
     lines.push("");
     lines.push(drafts[channel]);
     lines.push("");
     lines.push("---");
     lines.push("");
   }
-  lines.push(`> 검토 후 그대로 또는 수정해 ${issue.channels.map((c) => channelLabel[c]).join(" / ")}에 게시하세요.`);
+  lines.push(`> 검토 후 그대로 또는 수정해 ${issue.channels.map((c) => channelLabel[c]).join(" → ")} 순으로 게시하세요.`);
   await writeFile(path.join(OUT_DIR, "comment.md"), lines.join("\n"), "utf8");
   console.log(`[draft] wrote outputs/comment.md`);
 }
