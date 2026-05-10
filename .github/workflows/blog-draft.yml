@@ -211,16 +211,26 @@ jobs:
           # Pages 빌드는 push 후 30~60초 걸림. 최대 3분까지 폴링하다가 timeout 시 그냥 진행
           # (코멘트는 어쨌든 게시되고, 사용자가 잠시 후 새로고침하면 됨).
           for i in $(seq 1 36); do
-            status=$(gh api "/repos/${OWNER}/${REPO}/pages/builds/latest" --jq '.status' 2>/dev/null || echo "missing")
+            if out=$(gh api "/repos/${OWNER}/${REPO}/pages/builds/latest" --jq '.status' 2>/dev/null); then
+              status="$out"
+            else
+              status="missing"
+            fi
             echo "[${i}] pages build status: ${status}"
-            if [ "${status}" = "built" ]; then
-              echo "pages deployed"
-              break
-            fi
-            if [ "${status}" = "errored" ]; then
-              echo "pages build errored — 코멘트는 그대로 진행"
-              break
-            fi
+            case "${status}" in
+              built)
+                echo "pages deployed"
+                break
+                ;;
+              errored)
+                echo "pages build errored — 코멘트는 그대로 진행"
+                break
+                ;;
+              missing)
+                echo "Pages 미활성화 — Repo Settings → Pages 에서 Source: Deploy from a branch / Branch: gh-pages '/' 로 설정 필요. 코멘트는 그대로 진행"
+                break
+                ;;
+            esac
             sleep 5
           done
 
