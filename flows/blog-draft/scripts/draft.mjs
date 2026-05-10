@@ -9,7 +9,6 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { convert as mdToNaverHtml } from "@jjlabsio/md-to-naver-blog";
-import sharp from "sharp";
 
 const ROOT = process.cwd();
 const FLOW_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -160,36 +159,6 @@ function injectImageUrlsForNaver(draft) {
   );
 }
 
-// 다운로드한 이미지를 sharp로 1200px 리사이즈 + JPEG 품질 75로 base64 data URL 인코딩.
-// gist 1MB 한도 안에서 third-party origin(gistcdn.githack.com)에서도 이미지가 보이도록.
-async function imageToDataUrl(filePath) {
-  const buf = await sharp(filePath)
-    .rotate() // EXIF 방향 보정
-    .resize({ width: 1200, withoutEnlargement: true })
-    .jpeg({ quality: 75 })
-    .toBuffer();
-  return `data:image/jpeg;base64,${buf.toString("base64")}`;
-}
-
-// HTML 안의 user-attachments URL을 data URL로 치환. gist 미리보기 전용.
-async function inlineImagesInHtml(html, downloads) {
-  let result = html;
-  for (const img of downloads) {
-    if (!img.url || !img.file) continue;
-    try {
-      const dataUrl = await imageToDataUrl(img.file);
-      const escapedUrl = img.url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      result = result.replace(new RegExp(escapedUrl, "g"), dataUrl);
-      console.log(
-        `[inline] ${path.basename(img.file)} → ${(dataUrl.length / 1024).toFixed(1)} KB data URL`,
-      );
-    } catch (e) {
-      console.warn(`[inline] fail ${img.file}: ${e.message}`);
-    }
-  }
-  return result;
-}
-
 // Gemini가 출력한 마크다운을 mtnb로 변환해 제목/본문 마크다운/HTML을 얻는다.
 // - title: 첫 H1 텍스트
 // - bodyMd: H1 한 줄을 제거한 마크다운 (GitHub 코멘트 미리보기용)
@@ -234,17 +203,13 @@ async function main() {
       if (errors.length) {
         console.warn(`[draft] mtnb warnings (${errors.length}):`, errors.slice(0, 3));
       }
-      // 3) gist 미리보기용 HTML: user-attachments URL을 data URL로 인라인
-      //    third-party origin(gistcdn.githack.com)에서도 이미지가 보이게 한다.
-      //    drafts.json에는 원본 html만 보관(코멘트 fallback이 너무 커지지 않도록).
-      const htmlInlined = await inlineImagesInHtml(html, images.downloaded);
       drafts[channel] = { title, body: bodyMd, html };
       const mdFile = path.join(OUT_DIR, "naver.md");
       const htmlFile = path.join(OUT_DIR, "naver.html");
       await writeFile(mdFile, rawWithImages + "\n", "utf8");
-      await writeFile(htmlFile, htmlInlined + "\n", "utf8");
+      await writeFile(htmlFile, html + "\n", "utf8");
       console.log(
-        `[draft] wrote ${mdFile} (raw html=${(html.length / 1024).toFixed(1)}KB) + ${htmlFile} (inlined=${(htmlInlined.length / 1024).toFixed(1)}KB)`,
+        `[draft] wrote ${mdFile} + ${htmlFile} (title=${title.length}자, bodyMd=${bodyMd.length}자, html=${html.length}자)`,
       );
     } else {
       drafts[channel] = { title: "", body: raw, html: "" };
