@@ -41,31 +41,7 @@ lines.push("");
 lines.push("</details>");
 lines.push("");
 
-// 3) 🚀 네이버 미리보기 배너 — 운영자가 진입 시 가장 먼저 보는 영역
-if (previewUrl && issue.channels.includes("naver")) {
-  lines.push("---");
-  lines.push("");
-  lines.push("## 🚀 네이버 서식 복사용 미리보기");
-  lines.push("");
-  lines.push(`### 👉 **[새 탭에서 열기](${previewUrl})**`);
-  lines.push("");
-  lines.push(
-    "> 위 링크를 새 탭에서 열고 **Cmd-A → Cmd-C → 네이버 에디터 붙여넣기**. 헤딩·볼드·리스트·인용 서식이 그대로 살아납니다.",
-  );
-  lines.push("> ");
-  lines.push(
-    "> 코멘트 안의 마크다운/HTML을 직접 복사하면 GitHub 살균 정책으로 서식이 사라지므로 반드시 위 링크를 사용해 주세요.",
-  );
-  if (previewGistUrl) {
-    lines.push("> ");
-    lines.push(`> _Gist 원본: ${previewGistUrl}_`);
-  }
-  lines.push("");
-  lines.push("---");
-  lines.push("");
-}
-
-// 4) 채널별 섹션 (인스타 → 네이버 순)
+// 3) 채널별 섹션 (인스타 → 네이버 순)
 for (const channel of issue.channels) {
   const draft = drafts[channel] || { title: "", body: "", html: "" };
   lines.push(`# ${channelEmoji[channel]} ${channelLabel[channel]}`);
@@ -82,6 +58,26 @@ for (const channel of issue.channels) {
 
   lines.push(draft.body);
   lines.push("");
+
+  // 네이버 섹션 하단: 🚀 서식 복사용 미리보기 배너 + HTML fallback
+  if (channel === "naver" && previewUrl) {
+    lines.push("## 🚀 네이버 서식 복사용 미리보기");
+    lines.push("");
+    lines.push(`### 👉 **[새 탭에서 열기](${previewUrl})**`);
+    lines.push("");
+    lines.push(
+      "> 위 링크를 새 탭에서 열고 **Cmd-A → Cmd-C → 네이버 에디터 붙여넣기**. 헤딩·볼드·리스트·인용 서식이 그대로 살아납니다.",
+    );
+    lines.push("> ");
+    lines.push(
+      "> 코멘트 안의 마크다운/HTML을 직접 복사하면 GitHub 살균 정책으로 서식이 사라지므로 반드시 위 링크를 사용해 주세요.",
+    );
+    if (previewGistUrl) {
+      lines.push("> ");
+      lines.push(`> _Gist 원본: ${previewGistUrl}_`);
+    }
+    lines.push("");
+  }
 
   if (channel === "naver" && draft.html) {
     lines.push("<details>");
