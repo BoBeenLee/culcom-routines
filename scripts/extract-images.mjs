@@ -19,20 +19,49 @@ function extFromUrl(url) {
   return m ? m[1].toLowerCase() : "bin";
 }
 
-const downloaded = [];
-let i = 0;
-for (const url of issue.imageUrls) {
-  i++;
+// Private 레포의 user-attachments는 GitHub 토큰으로 인증해야 302 redirect를 받는다.
+// 그러나 S3 presigned URL은 Authorization 헤더가 있으면 거부하므로, 수동으로 redirect를
+// 처리해서 1차(github.com)에는 토큰을, 2차(s3.amazonaws.com)에는 토큰 없이 fetch한다.
+async function fetchAttachment(url) {
+  const isUserAttachment = /github\.com\/user-attachments/.test(url);
+  if (!isUserAttachment) {
+    return await fetch(url, {
+      headers: {
+        "User-Agent": "culcom-routines/0.1",
+        Accept: "image/*,*/*;q=0.8",
+      },
+      redirect: "follow",
+    });
+  }
+  // 1차: github.com (수동 redirect)
   const headers = {
     "User-Agent": "culcom-routines/0.1",
     Accept: "image/*,*/*;q=0.8",
   };
-  if (TOKEN && /github\.com\/user-attachments/.test(url)) {
-    headers.Authorization = `Bearer ${TOKEN}`;
+  if (TOKEN) headers.Authorization = `Bearer ${TOKEN}`;
+  let cur = await fetch(url, { headers, redirect: "manual" });
+  let hops = 0;
+  while ((cur.status === 301 || cur.status === 302 || cur.status === 303 || cur.status === 307 || cur.status === 308) && hops < 5) {
+    const next = cur.headers.get("location");
+    if (!next) break;
+    const nextUrl = new URL(next, url).href;
+    const sameOrigin = new URL(nextUrl).origin === new URL(url).origin;
+    cur = await fetch(nextUrl, {
+      headers: sameOrigin ? headers : { "User-Agent": headers["User-Agent"], Accept: headers.Accept },
+      redirect: "manual",
+    });
+    hops++;
   }
+  return cur;
+}
+
+const downloaded = [];
+let i = 0;
+for (const url of issue.imageUrls) {
+  i++;
   let res;
   try {
-    res = await fetch(url, { headers, redirect: "follow" });
+    res = await fetchAttachment(url);
   } catch (e) {
     console.warn(`[extract-images] fetch fail ${url}: ${e.message}`);
     continue;
