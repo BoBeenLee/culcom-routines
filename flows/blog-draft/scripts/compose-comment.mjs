@@ -47,19 +47,7 @@ for (const channel of issue.channels) {
   lines.push(`# ${channelEmoji[channel]} ${channelLabel[channel]}`);
   lines.push("");
 
-  if (channel === "naver" && draft.title) {
-    lines.push("## 📝 제목");
-    lines.push("");
-    lines.push(draft.title);
-    lines.push("");
-    lines.push("## 📄 본문 (마크다운 미리보기)");
-    lines.push("");
-  }
-
-  lines.push(draft.body);
-  lines.push("");
-
-  // 네이버 섹션 하단: 🚀 서식 복사용 미리보기 배너 + HTML fallback
+  // 네이버 채널이면 헤더 바로 밑에 🚀 미리보기 배너를 깐다.
   if (channel === "naver" && previewUrl) {
     lines.push("## 🚀 네이버 서식 복사용 미리보기");
     lines.push("");
@@ -79,6 +67,18 @@ for (const channel of issue.channels) {
     lines.push("");
   }
 
+  if (channel === "naver" && draft.title) {
+    lines.push("## 📝 제목");
+    lines.push("");
+    lines.push(draft.title);
+    lines.push("");
+    lines.push("## 📄 본문 (마크다운 미리보기)");
+    lines.push("");
+  }
+
+  lines.push(draft.body);
+  lines.push("");
+
   if (channel === "naver" && draft.html) {
     lines.push("<details>");
     lines.push(
@@ -97,7 +97,7 @@ for (const channel of issue.channels) {
   lines.push("");
 }
 
-// 5) 게시 안내
+// 4) 게시 안내
 lines.push(
   `> 검토 후 그대로 또는 수정해 ${issue.channels.map((c) => channelLabel[c]).join(" → ")} 순으로 게시하세요.`,
 );
