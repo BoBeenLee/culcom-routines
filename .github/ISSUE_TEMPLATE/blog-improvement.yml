@@ -1,0 +1,67 @@
+name: 블로그/인스타 작성 개선 요청
+description: 블로그/인스타 초안 자동 생성 관련 개선 사항·버그·아이디어를 남깁니다.
+title: "[개선] "
+labels: ["improvement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        블로그/인스타 초안 작성 워크플로우 또는 결과물에 대한 **개선 요청**을 남겨주세요.
+        구체적인 예시(이슈 링크, 코멘트 인용, 스크린샷)가 있으면 빠르게 반영됩니다.
+  - type: dropdown
+    id: category
+    attributes:
+      label: 분류
+      description: 가장 가까운 항목을 선택하세요.
+      options:
+        - 결과물 품질 (문체/톤/구성)
+        - 결과물 정확성 (사실관계/날짜/트렌드)
+        - 이미지 처리 (첨부/순서/캡션)
+        - 채널별 포맷 (네이버/인스타)
+        - 워크플로우/자동화 (실행/속도/오류)
+        - 템플릿/입력 폼
+        - 기타
+      default: 0
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: 개선 요청 요약 — 필수
+      description: 무엇을 어떻게 바꾸고 싶은지 한두 문장으로 적어주세요.
+      placeholder: "예) 인스타 캡션이 너무 길어서 3~5줄로 짧게 끊어줬으면 좋겠어요."
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: 현재 동작 / 결과물
+      description: 지금 어떤 결과가 나오는지, 어떤 점이 아쉬운지 적어주세요. 가능하면 이슈 링크나 코멘트 인용을 포함해주세요.
+      placeholder: |
+        예) #12 의 인스타 초안이 12줄로 길게 나옴.
+        ---
+        (해당 코멘트 일부 붙여넣기)
+    validations:
+      required: false
+  - type: textarea
+    id: expected
+    attributes:
+      label: 기대 동작 / 원하는 결과물
+      description: 어떻게 동작하면 좋을지 구체적으로 적어주세요.
+      placeholder: "예) 첫 줄은 후킹 문구, 본문 3줄, 마지막 줄에 해시태그가 모이는 형태."
+    validations:
+      required: false
+  - type: input
+    id: related
+    attributes:
+      label: 관련 이슈 / PR (선택)
+      placeholder: "#12, #15"
+    validations:
+      required: false
+  - type: textarea
+    id: extra
+    attributes:
+      label: 참고 자료 (선택)
+      description: 스크린샷, 레퍼런스 링크, 예시 문구 등 자유롭게 첨부해주세요.
+    validations:
+      required: false
