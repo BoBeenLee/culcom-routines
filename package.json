@@ -5,7 +5,6 @@
   "type": "module",
   "description": "컬컴 영어회화 하남 - 블로그/인스타 초안 자동 생성",
   "scripts": {
-    "scrape:naver": "node scripts/scrape-naver.mjs",
     "parse:issue": "node scripts/parse-issue.mjs",
     "extract:images": "node scripts/extract-images.mjs",
     "fetch:trends": "node scripts/fetch-trends.mjs",
@@ -13,7 +12,6 @@
   },
   "dependencies": {
     "@jjlabsio/md-to-naver-blog": "^2.0.0",
-    "cheerio": "^1.0.0",
     "heic-convert": "^2.1.0",
     "sharp": "^0.33.5"
   },
