@@ -67,6 +67,16 @@ jobs:
             gh issue edit "$ISSUE_NUMBER" --add-label "$ch" || true
           done
 
+      - name: Rename issue title to "[YYYY-MM-DD] 스터디 블로그·인스타 자동 생성"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          when=$(jq -r '.when' outputs/issue.json)
+          new_title="[${when}] 스터디 블로그·인스타 자동 생성"
+          echo "rename → ${new_title}"
+          gh issue edit "$ISSUE_NUMBER" --title "$new_title" || true
+
       - name: Download attached images
         env:
           # Private 레포의 user-attachments는 자동 발급되는 GITHUB_TOKEN으로 접근 불가.
