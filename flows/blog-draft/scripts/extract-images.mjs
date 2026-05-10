@@ -5,10 +5,49 @@
 
 import { mkdir, writeFile, readFile } from "node:fs/promises";
 import path from "node:path";
+import sharp from "sharp";
+import heicConvert from "heic-convert";
 
 const ISSUE_JSON = path.resolve("outputs/issue.json");
 const IN_DIR = path.resolve("inputs");
 const TOKEN = process.env.GITHUB_TOKEN || "";
+
+const MAX_DIM = 1600;
+const JPEG_QUALITY = 88;
+
+async function normalizeImage(buf, ext) {
+  if (ext === "heic" || ext === "heif") {
+    const jpegBuf = await heicConvert({ buffer: buf, format: "JPEG", quality: 1 });
+    buf = Buffer.from(jpegBuf);
+    ext = "jpg";
+  }
+  if (ext === "gif") return { buf, ext };
+  let meta;
+  try {
+    meta = await sharp(buf).metadata();
+  } catch {
+    return { buf, ext };
+  }
+  const longEdge = Math.max(meta.width || 0, meta.height || 0);
+  const needsResize = longEdge > MAX_DIM;
+  if (!needsResize && ext !== "jpg" && ext !== "jpeg") {
+    return { buf, ext };
+  }
+  let pipeline = sharp(buf).rotate();
+  if (needsResize) {
+    pipeline = pipeline.resize({ width: MAX_DIM, height: MAX_DIM, fit: "inside", withoutEnlargement: true });
+  }
+  if (ext === "jpg" || ext === "jpeg") {
+    return { buf: await pipeline.jpeg({ quality: JPEG_QUALITY, mozjpeg: true }).toBuffer(), ext: "jpg" };
+  }
+  if (ext === "png") {
+    return { buf: await pipeline.png({ compressionLevel: 9 }).toBuffer(), ext: "png" };
+  }
+  if (ext === "webp") {
+    return { buf: await pipeline.webp({ quality: JPEG_QUALITY }).toBuffer(), ext: "webp" };
+  }
+  return { buf, ext };
+}
 
 const issue = JSON.parse(await readFile(ISSUE_JSON, "utf8"));
 await mkdir(IN_DIR, { recursive: true });
@@ -78,18 +117,26 @@ for (const url of issue.imageUrls) {
     continue;
   }
   const ct = res.headers.get("content-type") || "";
-  const ext =
+  let ext =
     ct.includes("png") ? "png"
     : ct.includes("webp") ? "webp"
     : ct.includes("gif") ? "gif"
-    : ct.includes("heic") ? "heic"
+    : ct.includes("heic") || ct.includes("heif") ? "heic"
     : ct.includes("jpeg") || ct.includes("jpg") ? "jpg"
     : extFromUrl(url);
+  let buf = Buffer.from(await res.arrayBuffer());
+  const originalBytes = buf.length;
+  try {
+    const normalized = await normalizeImage(buf, ext);
+    buf = normalized.buf;
+    ext = normalized.ext;
+  } catch (e) {
+    console.warn(`[extract-images] normalize 실패 (원본 유지) ${url}: ${e.message}`);
+  }
   const file = path.join(IN_DIR, `img${String(i).padStart(2, "0")}.${ext}`);
-  const buf = Buffer.from(await res.arrayBuffer());
   await writeFile(file, buf);
-  downloaded.push({ url, file, bytes: buf.length });
-  console.log(`[ok] ${file} (${buf.length}B) ← ${url}`);
+  downloaded.push({ url, file, bytes: buf.length, originalBytes });
+  console.log(`[ok] ${file} (${buf.length}B, 원본 ${originalBytes}B) ← ${url}`);
 }
 
 await writeFile(

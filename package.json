@@ -13,7 +13,9 @@
   },
   "dependencies": {
     "@jjlabsio/md-to-naver-blog": "^2.0.0",
-    "cheerio": "^1.0.0"
+    "cheerio": "^1.0.0",
+    "heic-convert": "^2.1.0",
+    "sharp": "^0.33.5"
   },
   "engines": {
     "node": ">=20"
