@@ -18,7 +18,6 @@ const channelLabel = {
 const channelEmoji = { insta: "📸", naver: "📰" };
 
 const previewUrl = (process.env.NAVER_PREVIEW_URL || "").trim();
-const previewGistUrl = (process.env.NAVER_PREVIEW_GIST_URL || "").trim();
 
 const lines = [];
 
@@ -60,10 +59,6 @@ for (const channel of issue.channels) {
     lines.push(
       "> 코멘트 안의 마크다운/HTML을 직접 복사하면 GitHub 살균 정책으로 서식이 사라지므로 반드시 위 링크를 사용해 주세요.",
     );
-    if (previewGistUrl) {
-      lines.push("> ");
-      lines.push(`> _Gist 원본: ${previewGistUrl}_`);
-    }
     lines.push("");
   }
 

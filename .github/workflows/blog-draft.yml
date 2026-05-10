@@ -5,7 +5,7 @@ on:
     types: [opened, edited, labeled]
 
 permissions:
-  contents: read
+  contents: write   # gh-pages 브랜치에 네이버 미리보기 push
   issues: write
 
 # 같은 이슈에 대해 opened + labeled 가 동시에 발행되어 중복 실행되는 것을 직렬화한다.
@@ -17,9 +17,16 @@ concurrency:
 jobs:
   precheck:
     # 1차 가드: 이벤트 시점 스냅샷에서 빠르게 거름
+    # public 레포에서 외부인이 issue로 워크플로우를 트리거해 Gemini 쿼터/Actions 분량을 소진시키는 abuse 방지를
+    # 위해 author_association 체크 추가. OWNER/MEMBER/COLLABORATOR 만 통과.
     if: |
       contains(github.event.issue.labels.*.name, 'draft-request') &&
-      !contains(github.event.issue.labels.*.name, 'drafted')
+      !contains(github.event.issue.labels.*.name, 'drafted') &&
+      (
+        github.event.issue.author_association == 'OWNER' ||
+        github.event.issue.author_association == 'MEMBER' ||
+        github.event.issue.author_association == 'COLLABORATOR'
+      )
     runs-on: ubuntu-latest
     outputs:
       proceed: ${{ steps.check.outputs.proceed }}
@@ -146,33 +153,80 @@ jobs:
           GEMINI_CLI_TRUST_WORKSPACE: 'true'
         run: node flows/blog-draft/scripts/draft.mjs
 
-      - name: Publish naver preview gist
+      - name: Publish naver preview to GitHub Pages
         id: preview
         if: hashFiles('outputs/naver.html') != ''
         env:
-          # gh gist 사용을 위해 ATTACHMENTS_PAT(repo+gist scope)을 우선 사용. 없으면 GITHUB_TOKEN(불충분, 실패 가능).
-          GH_TOKEN: ${{ secrets.ATTACHMENTS_PAT || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+          RUN_ID: ${{ github.run_id }}
         run: |
           set -e
-          gist_url=$(gh gist create outputs/naver.html \
-            --desc "blog-draft preview #${ISSUE_NUMBER}" \
-            --filename naver.html)
-          gist_id=$(basename "$gist_url")
-          echo "gist_url=$gist_url"
-          echo "gist_id=$gist_id"
-          # history[0].version 은 가장 최신 커밋의 SHA
-          sha=$(gh api gists/$gist_id --jq '.history[0].version')
-          raw="https://gistcdn.githack.com/${OWNER}/${gist_id}/raw/${sha}/naver.html"
-          echo "raw_url=${raw}"
-          echo "gist_url=${gist_url}" >> "$GITHUB_OUTPUT"
-          echo "raw_url=${raw}" >> "$GITHUB_OUTPUT"
+          owner_lc=$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')
+          repo_lc=$(printf '%s' "$REPO" | tr '[:upper:]' '[:lower:]')
+          remote="https://x-access-token:${GH_TOKEN}@github.com/${OWNER}/${REPO}.git"
+          work=$(mktemp -d)
+
+          if git ls-remote --exit-code --heads "$remote" gh-pages > /dev/null 2>&1; then
+            git clone --depth=1 --branch=gh-pages --single-branch "$remote" "$work/pages"
+          else
+            mkdir -p "$work/pages"
+            git -C "$work/pages" init -q -b gh-pages
+            git -C "$work/pages" remote add origin "$remote"
+            cat > "$work/pages/index.html" <<HTML
+          <!doctype html><meta charset="utf-8"><title>${REPO} previews</title>
+          <h1>${REPO}</h1>
+          <p>Auto-generated blog-draft previews live under <code>/previews/issue-N.html</code>.</p>
+          HTML
+          fi
+
+          mkdir -p "$work/pages/previews"
+          cp outputs/naver.html "$work/pages/previews/issue-${ISSUE_NUMBER}.html"
+
+          cd "$work/pages"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          if git diff --cached --quiet; then
+            echo "no changes"
+          else
+            git commit -q -m "preview: issue #${ISSUE_NUMBER} (run ${RUN_ID})"
+            git push -q origin HEAD:gh-pages
+          fi
+
+          # cache-bust 으로 ?v=run_id 추가 — 동일 이슈 재생성 시 브라우저 캐시 강제 무효화
+          pages_url="https://${owner_lc}.github.io/${repo_lc}/previews/issue-${ISSUE_NUMBER}.html?v=${RUN_ID}"
+          echo "pages_url=${pages_url}"
+          echo "pages_url=${pages_url}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for Pages deployment
+        if: steps.preview.outputs.pages_url != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+        run: |
+          # Pages 빌드는 push 후 30~60초 걸림. 최대 3분까지 폴링하다가 timeout 시 그냥 진행
+          # (코멘트는 어쨌든 게시되고, 사용자가 잠시 후 새로고침하면 됨).
+          for i in $(seq 1 36); do
+            status=$(gh api "/repos/${OWNER}/${REPO}/pages/builds/latest" --jq '.status' 2>/dev/null || echo "missing")
+            echo "[${i}] pages build status: ${status}"
+            if [ "${status}" = "built" ]; then
+              echo "pages deployed"
+              break
+            fi
+            if [ "${status}" = "errored" ]; then
+              echo "pages build errored — 코멘트는 그대로 진행"
+              break
+            fi
+            sleep 5
+          done
 
       - name: Compose issue comment
         env:
-          NAVER_PREVIEW_URL: ${{ steps.preview.outputs.raw_url }}
-          NAVER_PREVIEW_GIST_URL: ${{ steps.preview.outputs.gist_url }}
+          NAVER_PREVIEW_URL: ${{ steps.preview.outputs.pages_url }}
         run: node flows/blog-draft/scripts/compose-comment.mjs
 
       - name: Comment drafts on issue
