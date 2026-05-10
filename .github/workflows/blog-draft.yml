@@ -113,10 +113,33 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.ATTACHMENTS_PAT || secrets.GITHUB_TOKEN }}
         run: node flows/blog-draft/scripts/extract-images.mjs
 
+      - name: Compute trend cache key
+        id: tkey
+        run: |
+          when=$(jq -r '.when' outputs/issue.json)
+          echo "when=${when}" >> "$GITHUB_OUTPUT"
+          echo "use date=${when} for trend cache key"
+
+      - name: Restore trends cache (per-date)
+        id: trends-cache
+        uses: actions/cache@v4
+        with:
+          path: outputs/trends.json
+          # 같은 날짜(when) + 같은 trend-research.md 해시면 캐시 히트.
+          # 프롬프트가 바뀌면 자동으로 캐시 무효화.
+          key: blog-draft-trends-${{ steps.tkey.outputs.when }}-${{ hashFiles('flows/blog-draft/prompts/trend-research.md') }}
+
       - name: Fetch trends (Gemini + web search)
+        if: steps.trends-cache.outputs.cache-hit != 'true'
         env:
           GEMINI_CLI_TRUST_WORKSPACE: 'true'
         run: node flows/blog-draft/scripts/fetch-trends.mjs
+
+      - name: Trends cache hit — skip fetch
+        if: steps.trends-cache.outputs.cache-hit == 'true'
+        run: |
+          echo "trends cache hit for ${{ steps.tkey.outputs.when }} — outputs/trends.json 재사용"
+          jq . outputs/trends.json | head -30
 
       - name: Generate drafts
         env:
