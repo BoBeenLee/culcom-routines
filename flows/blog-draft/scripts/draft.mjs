@@ -8,6 +8,7 @@ import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { convert as mdToNaverHtml } from "@jjlabsio/md-to-naver-blog";
 
 const ROOT = process.cwd();
 const FLOW_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -158,16 +159,27 @@ function injectImageUrlsForNaver(draft) {
   );
 }
 
-// Gemini가 [제목]\n<제목>\n\n[본문]\n<본문> 형식으로 출력하면 두 부분으로 분해.
-// 마커가 없으면 전체를 본문으로 간주하고 제목은 비워둔다.
-function parseNaverOutput(text) {
-  const t = text.replace(/\r\n/g, "\n").trim();
-  const titleM = t.match(/^\[제목\]\s*\n([^\n]+)/);
-  const bodyM = t.match(/\[본문\]\s*\n([\s\S]*)$/);
-  if (titleM && bodyM) {
-    return { title: titleM[1].trim(), body: bodyM[1].trim() };
+// Gemini가 출력한 마크다운을 mtnb로 변환해 제목/본문 마크다운/HTML을 얻는다.
+// - title: 첫 H1 텍스트
+// - bodyMd: H1 한 줄을 제거한 마크다운 (GitHub 코멘트 미리보기용)
+// - html: 네이버 에디터 호환 HTML (운영자 클립보드 복사용)
+function convertNaver(rawMarkdown) {
+  let md = rawMarkdown.replace(/\r\n/g, "\n").trim();
+  // Gemini가 가끔 ```markdown ... ``` 으로 감싸는 경우 벗겨낸다.
+  md = md.replace(/^```(?:markdown)?\s*\n?/i, "").replace(/\n?```\s*$/i, "");
+  const result = mdToNaverHtml(md);
+  // 첫 번째 # H1 라인을 본문에서 제거 (제목 분리)
+  let bodyMd = md;
+  const firstH1 = md.match(/^#\s+([^\n]+)\n*/);
+  if (firstH1) {
+    bodyMd = md.slice(firstH1[0].length).trimStart();
   }
-  return { title: "", body: t };
+  return {
+    title: (result.title || (firstH1 ? firstH1[1].trim() : "")).trim(),
+    bodyMd,
+    html: result.html || "",
+    errors: result.errors || [],
+  };
 }
 
 async function main() {
@@ -184,16 +196,21 @@ async function main() {
       raw = `(생성 실패: ${e.message})`;
     }
     if (channel === "naver") {
-      const { title, body } = parseNaverOutput(raw);
-      const bodyWithImages = injectImageUrlsForNaver(body);
-      drafts[channel] = { title, body: bodyWithImages };
-      const file = path.join(OUT_DIR, `naver.md`);
-      await writeFile(
-        file,
-        (title ? `[제목]\n${title}\n\n[본문]\n` : "") + bodyWithImages + "\n",
-        "utf8",
+      // 1) 사진 마커를 markdown 이미지 태그로 치환 (mtnb 가 <img>로 렌더링)
+      const rawWithImages = injectImageUrlsForNaver(raw);
+      // 2) mtnb로 제목/본문/HTML 추출
+      const { title, bodyMd, html, errors } = convertNaver(rawWithImages);
+      if (errors.length) {
+        console.warn(`[draft] mtnb warnings (${errors.length}):`, errors.slice(0, 3));
+      }
+      drafts[channel] = { title, body: bodyMd, html };
+      const mdFile = path.join(OUT_DIR, "naver.md");
+      const htmlFile = path.join(OUT_DIR, "naver.html");
+      await writeFile(mdFile, rawWithImages + "\n", "utf8");
+      await writeFile(htmlFile, html + "\n", "utf8");
+      console.log(
+        `[draft] wrote ${mdFile} + ${htmlFile} (title=${title.length}자, bodyMd=${bodyMd.length}자, html=${html.length}자)`,
       );
-      console.log(`[draft] wrote ${file} (title=${title.length}자, body=${bodyWithImages.length}자)`);
     } else {
       drafts[channel] = { title: "", body: raw };
       const file = path.join(OUT_DIR, `${channel}.md`);
@@ -230,11 +247,24 @@ async function main() {
       lines.push("");
       lines.push(drafts[channel].title);
       lines.push("");
-      lines.push("## 📄 본문");
+      lines.push("## 📄 본문 (마크다운 미리보기)");
       lines.push("");
     }
     lines.push(drafts[channel].body);
     lines.push("");
+    if (channel === "naver" && drafts[channel].html) {
+      lines.push("<details>");
+      lines.push(
+        "<summary>🧩 네이버 에디터 호환 HTML (mtnb 변환 결과 — 클릭해서 펼친 뒤 복사)</summary>",
+      );
+      lines.push("");
+      lines.push("```html");
+      lines.push(drafts[channel].html);
+      lines.push("```");
+      lines.push("");
+      lines.push("</details>");
+      lines.push("");
+    }
     lines.push("---");
     lines.push("");
   }
@@ -243,7 +273,16 @@ async function main() {
   );
   if (issue.channels.includes("naver")) {
     lines.push(
-      "> 📰 네이버 본문 안의 사진(\`![이미지 #N: ...](...)\`)은 GitHub 코멘트 미리보기용입니다. 네이버 에디터로 붙여넣을 때는 그 한 줄을 지우고 같은 자리에 사진을 직접 끌어 올려 주세요.",
+      "> 📰 네이버 게시 방법:",
+    );
+    lines.push(
+      "> - **간편**: 위 \"본문 (마크다운 미리보기)\" 섹션을 그대로 복사해 [mtnb.dev](https://mtnb.dev)에 붙여넣고 \"서식 복사\" 버튼 → 네이버 에디터에 붙여넣기.",
+    );
+    lines.push(
+      "> - **직접**: \"네이버 에디터 호환 HTML\" 블록을 펼쳐 클립보드의 HTML을 그대로 복사해 네이버 에디터에 붙여넣기.",
+    );
+    lines.push(
+      "> - 본문 안의 사진(\`![이미지 #N: ...](...)\`)은 미리보기용입니다. 네이버에 붙여넣은 뒤 그 자리에 실제 사진을 드래그해 교체해 주세요.",
     );
   }
   await writeFile(path.join(OUT_DIR, "comment.md"), lines.join("\n"), "utf8");
