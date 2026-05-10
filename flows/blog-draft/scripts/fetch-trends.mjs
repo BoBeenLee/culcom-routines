@@ -21,7 +21,7 @@ const prompt = tmpl.replace(/\{\{DATE\}\}/g, date);
 
 function runGemini(p) {
   return new Promise((resolve, reject) => {
-    const child = spawn("gemini", ["--yolo", "-p", p], {
+    const child = spawn("gemini", ["--yolo", "-m", "gemini-3-pro-preview", "-p", p], {
       env: { ...process.env, GEMINI_CLI_TRUST_WORKSPACE: "true" },
       stdio: ["ignore", "pipe", "pipe"],
     });

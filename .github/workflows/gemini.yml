@@ -46,4 +46,4 @@ jobs:
         env:
           GEMINI_CLI_TRUST_WORKSPACE: 'true'
         run: |
-          gemini --yolo -p "Reply with exactly ok"
+          gemini --yolo -m gemini-3-pro-preview -p "Reply with exactly ok"
