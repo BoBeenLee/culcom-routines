@@ -68,6 +68,13 @@ for (const url of issue.imageUrls) {
   }
   if (!res.ok) {
     console.warn(`[extract-images] HTTP ${res.status} ${url}`);
+    if (res.status === 404 && /github\.com\/user-attachments/.test(url)) {
+      console.warn(
+        `  → Private 레포의 user-attachments는 자동 GITHUB_TOKEN으로 접근할 수 없다.\n` +
+          `    개인 PAT(repo scope)를 생성해 ATTACHMENTS_PAT secret에 등록하면 해결된다.\n` +
+          `    https://github.com/settings/tokens/new?scopes=repo&description=culcom-routines%20attachments`,
+      );
+    }
     continue;
   }
   const ct = res.headers.get("content-type") || "";

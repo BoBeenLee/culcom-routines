@@ -45,6 +45,7 @@ Issue (이미지 첨부) → workflow trigger
 - GitHub repo secrets:
   - `GEMINI_OAUTH_CREDS` — Gemini CLI OAuth 자격 증명(base64). [.github/workflows/gemini.yml](.github/workflows/gemini.yml)와 동일.
   - `GITHUB_TOKEN` — Actions 기본 토큰 (자동).
+  - `ATTACHMENTS_PAT` — **private 레포에서만 필요**. 자동 `GITHUB_TOKEN`은 user-attachments 자산에 접근할 수 없으므로, `repo` scope의 개인 PAT를 생성해 등록한다 ([토큰 생성](https://github.com/settings/tokens/new?scopes=repo&description=culcom-routines%20attachments)). public 레포에서는 불필요.
 - Issue 라벨 (워크플로우가 자동 부여하지만 사전 생성 권장):
   - `draft-request`, `naver`, `insta`, `drafted`, `error`
 
