@@ -142,6 +142,22 @@ function runGemini(prompt) {
   });
 }
 
+// 네이버 본문에 [이미지 #N: 묘사] 마커 뒤에 원본 이미지 URL을 markdown으로 주입.
+// GitHub 코멘트가 렌더될 때 운영자가 사진을 인라인으로 미리 볼 수 있게 한다.
+// 운영자가 네이버 에디터에 붙여넣을 때는 ![](url) 라인을 지우고 실제 사진으로 대체.
+function injectImageUrlsForNaver(draft) {
+  return draft.replace(
+    /\[이미지\s*#(\d+)(?::\s*([^\]]*))?\]/g,
+    (match, n, desc) => {
+      const idx = parseInt(n, 10) - 1;
+      const img = images.downloaded[idx];
+      if (!img) return match;
+      const alt = desc ? `이미지 #${n}: ${desc}` : `이미지 #${n}`;
+      return `${match}\n\n![${alt}](${img.url})\n`;
+    },
+  );
+}
+
 async function main() {
   await mkdir(OUT_DIR, { recursive: true });
   const drafts = {};
@@ -154,6 +170,9 @@ async function main() {
       body = await runGemini(prompt);
     } catch (e) {
       body = `(생성 실패: ${e.message})`;
+    }
+    if (channel === "naver") {
+      body = injectImageUrlsForNaver(body);
     }
     const file = path.join(OUT_DIR, `${channel}.md`);
     await writeFile(file, body + "\n", "utf8");
@@ -189,7 +208,14 @@ async function main() {
     lines.push("---");
     lines.push("");
   }
-  lines.push(`> 검토 후 그대로 또는 수정해 ${issue.channels.map((c) => channelLabel[c]).join(" → ")} 순으로 게시하세요.`);
+  lines.push(
+    `> 검토 후 그대로 또는 수정해 ${issue.channels.map((c) => channelLabel[c]).join(" → ")} 순으로 게시하세요.`,
+  );
+  if (issue.channels.includes("naver")) {
+    lines.push(
+      "> 📰 네이버 본문 안의 \`![이미지 #N: ...](...)\` 라인은 GitHub 코멘트에서 사진을 미리 보기 위한 것입니다. 네이버 에디터에 붙여넣을 때는 그 줄을 지우고 같은 위치에 사진을 직접 끌어 올려 주세요.",
+    );
+  }
   await writeFile(path.join(OUT_DIR, "comment.md"), lines.join("\n"), "utf8");
   console.log(`[draft] wrote outputs/comment.md`);
 }
