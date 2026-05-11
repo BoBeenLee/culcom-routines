@@ -152,20 +152,28 @@ function buildPrompt({ channel, style }) {
   // 직접 결정 (naver-style.md §1 페르소나 선택 규칙 참고).
   const analysisLines = imageAlts.length
     ? [
-        "===== 사진별 사전 묘사 (Gemini Flash, 사진 1장씩 도출 — 본문에 직접 반영) =====",
+        "===== 사진별 사전 묘사 (Gemini Flash, 사진 1장씩 6차원 관찰 — 본문에 직접 반영) =====",
         ...imageAlts.map((a) =>
           [
             `#${a.idx} (${a.file}):`,
-            `  alt: ${a.alt}`,
             a.marker_label ? `  marker_label: ${a.marker_label}` : "",
+            `  alt: ${a.alt}`,
+            a.scene ? `  scene: ${a.scene}` : "",
+            a.props ? `  props: ${a.props}` : "",
+            a.people ? `  people: ${a.people}` : "",
+            Array.isArray(a.mood_tags) && a.mood_tags.length
+              ? `  mood: ${a.mood_tags.join(", ")}`
+              : "",
+            a.distinctive ? `  distinctive: ${a.distinctive}` : "",
           ]
             .filter(Boolean)
             .join("\n"),
         ),
         "",
         "활용 지침:",
-        "- 위 alt 는 사진 1장씩 LLM 이 미리 관찰해 추출한 단서다. 본문 후크·중반 에피소드에 사진별 특이점(조명·옷차림·테이블 위 자료·인물 구성 등)을 구체적으로 반영하라. 모든 사진을 '카페 같은 분위기에서~' 류 일반론으로 회귀시키지 말 것.",
-        "- 페르소나는 사진(들) + alt + 운영자 메모를 종합해 naver-style.md §1 의 7개 페르소나 중 **하나만** 선택하고 글 전체 (오프닝~CTA) 에서 일관 유지.",
+        "- 위 alt/scene/props/people/mood/distinctive 는 사진 1장씩 미리 관찰한 6차원 단서다. 본문 후크·중반 에피소드 작성 시 사진별 특이점을 **구체 디테일로** 살려라 (예: '늦은 오후 햇살이 들어오는 창가 자리', '테이블 위 노란 메모지 더미', '외국인 친구와 카드를 펼친 장면'). '카페 같은 분위기에서~', '오늘도 열심히 스터디~' 류 일반론으로 흐릿하게 만들지 말 것.",
+        "- distinctive 단서는 글 전체에서 가장 차별적인 후크 — 첫 단락 또는 중심 에피소드에서 우선 활용.",
+        "- 페르소나는 사진(들) + 위 단서 + 운영자 메모를 종합해 naver-style.md §1 의 7개 페르소나 중 **하나만** 선택하고 글 전체 (오프닝~CTA) 에서 일관 유지.",
         channel === "naver"
           ? "- 네이버 본문의 `[이미지 #N: ...]` 마커 자리에는 위 `marker_label` 을 그대로 사용해도 좋다 (15자 이내, 자체 관찰과 결합해 변형 가능). 같은 사진을 두 번 묘사하지 말 것."
           : "",
