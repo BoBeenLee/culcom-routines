@@ -121,34 +121,58 @@ function trimLabel(s, max) {
   return t.length > max ? t.slice(0, max) : t;
 }
 
-const imageAlts = [];
-let ok = 0;
-for (let i = 0; i < images.downloaded.length; i++) {
+// 사진별 호출은 독립적이라 worker pool 로 병렬화. Gemini OAuth quota 와
+// GitHub Actions runner (2 vCPU) 를 고려해 기본 동시성 4. ANALYZE_IMAGES_CONCURRENCY
+// 환경변수로 워크플로우/로컬에서 override 가능 (1 이면 순차 실행).
+const CONCURRENCY = Math.max(
+  1,
+  parseInt(process.env.ANALYZE_IMAGES_CONCURRENCY || "4", 10) || 4,
+);
+
+async function analyzeOne(i) {
   const idx = i + 1;
   const d = images.downloaded[i];
   const rel = path.relative(ROOT, d.file);
-  process.stdout.write(`[analyze-images] #${idx}/${images.downloaded.length} ${rel}: `);
+  const tag = `[analyze-images] #${idx}/${images.downloaded.length} ${rel}`;
   let parsed = null;
+  let failMsg = "";
   try {
     const out = await runGemini(buildPrompt(rel));
     parsed = extractJson(out);
     if (!isUsable(parsed)) {
-      console.log(`parse/usability fail; raw head: ${out.slice(0, 120).replace(/\n/g, " ")}`);
+      failMsg = `parse/usability fail; raw head: ${out.slice(0, 120).replace(/\n/g, " ")}`;
       parsed = null;
     }
   } catch (e) {
-    console.log(`gemini fail (${e.message.slice(0, 100)})`);
+    failMsg = `gemini fail (${e.message.slice(0, 100)})`;
   }
   if (parsed) {
     const alt = parsed.alt.trim();
     const marker_label = trimLabel(parsed.marker_label, 30);
-    imageAlts.push({ idx, file: rel, alt, marker_label });
-    ok++;
-    console.log(`ok — label="${marker_label}" alt[${alt.length}]`);
-  } else {
-    imageAlts.push({ idx, file: rel, alt: "", marker_label: "" });
+    console.log(`${tag}: ok — label="${marker_label}" alt[${alt.length}]`);
+    return { idx, file: rel, alt, marker_label };
+  }
+  console.log(`${tag}: ${failMsg}`);
+  return { idx, file: rel, alt: "", marker_label: "" };
+}
+
+const results = new Array(images.downloaded.length);
+let cursor = 0;
+async function worker() {
+  while (true) {
+    const i = cursor++;
+    if (i >= images.downloaded.length) return;
+    results[i] = await analyzeOne(i);
   }
 }
+const workerCount = Math.min(CONCURRENCY, images.downloaded.length);
+console.log(
+  `[analyze-images] concurrency=${workerCount}, total=${images.downloaded.length}`,
+);
+await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+const imageAlts = results;
+const ok = imageAlts.filter((a) => a.alt && a.alt.length > 0).length;
 
 await writeFile(
   OUT,
