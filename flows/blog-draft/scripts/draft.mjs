@@ -20,24 +20,27 @@ const trends = JSON.parse(await readFile(path.join(OUT_DIR, "trends.json"), "utf
 const images = JSON.parse(await readFile(path.join(OUT_DIR, "images.json"), "utf8"));
 const systemMd = await readFile(path.join(PROMPTS_DIR, "system.md"), "utf8");
 
-// image-analysis.json: analyze-images.mjs (Gemini Flash) 산출물. 페르소나·후크 씨앗
-// 같은 사진 단서 텍스트를 prompt 에 inject 해 본문 동질화를 완화한다.
-// 파일이 없거나 persona_candidate 가 비어있으면 inject 건너뜀 (워크플로우에서
-// analyze-images 단계가 없거나 실패한 경우에도 draft 는 그대로 동작).
-let imageAnalysis = null;
+// image-analysis.json: analyze-images.mjs (Gemini Flash, 사진별 N회 호출) 산출물.
+// 사진별 alt(50~150자) + 마커 라벨(15자 이내) 을 prompt 에 inject 해 본문 동질화를
+// 완화한다. 페르소나·후크는 draft.mjs 가 사진 원본 + alt + 운영자 메모를 종합해
+// 직접 결정 (naver-style.md §1 페르소나 선택 규칙).
+//
+// 파일 없거나 image_alts 가 비어있으면 inject 건너뜀 (analyze-images 단계가 없거나
+// 모두 실패한 경우에도 draft 는 그대로 동작).
+let imageAlts = [];
 try {
   const parsed = JSON.parse(
     await readFile(path.join(OUT_DIR, "image-analysis.json"), "utf8"),
   );
-  if (
-    parsed &&
-    typeof parsed.persona_candidate === "string" &&
-    parsed.persona_candidate.trim().length > 0
-  ) {
-    imageAnalysis = parsed;
-    console.log(`[draft] image-analysis loaded. persona=${parsed.persona_candidate}`);
+  if (parsed && Array.isArray(parsed.image_alts)) {
+    imageAlts = parsed.image_alts.filter(
+      (a) => a && (typeof a.alt === "string") && a.alt.trim().length > 0,
+    );
+    console.log(
+      `[draft] image-analysis loaded. alts=${imageAlts.length}/${parsed.image_alts.length}`,
+    );
   } else {
-    console.log(`[draft] image-analysis present but no persona_candidate; skip inject`);
+    console.log(`[draft] image-analysis present but no image_alts; skip inject`);
   }
 } catch {
   console.log(`[draft] image-analysis.json not found; skip inject`);
@@ -144,21 +147,28 @@ function buildPrompt({ channel, style }) {
     .join(" ");
   const lengthGuide =
     channel === "naver" ? naverLengthGuide(imageCount) : igLengthGuide(imageCount);
-  // analyze-images.mjs 산출물 (있을 때만 inject). 페르소나·후크 씨앗을 본문에 직접
-  // 반영하도록 명시적으로 지시 — naver-style.md §1 페르소나 선택 규칙과 연동.
-  const analysisLines = imageAnalysis
+  // analyze-images.mjs 산출물 (있을 때만 inject). 사진별 풍부 묘사(alt) + 마커
+  // 라벨을 그대로 전달. 페르소나·후크는 LLM 이 사진 원본 + alt + 운영자 메모로
+  // 직접 결정 (naver-style.md §1 페르소나 선택 규칙 참고).
+  const analysisLines = imageAlts.length
     ? [
-        "===== 사진 사전 분석 (Gemini Flash, 위 사진 묶음에서 도출 — 본문에 직접 반영) =====",
-        `- 분위기·시간대: ${imageAnalysis.mood || "(미상)"}`,
-        `- 장면·소품: ${imageAnalysis.scene || "(미상)"}`,
-        `- 인물 구성: ${imageAnalysis.people || "(미상)"}`,
-        `- 추천 페르소나: ${imageAnalysis.persona_candidate}${imageAnalysis.persona_rationale ? ` (이유: ${imageAnalysis.persona_rationale})` : ""}`,
-        `- 후크 씨앗 (오프닝·중반 에피소드에 구체 반영): ${imageAnalysis.hook_seed || "(없음)"}`,
-        Array.isArray(imageAnalysis.image_descriptions) && imageAnalysis.image_descriptions.length
-          ? `- 사진별 묘사 참고 (네이버 [이미지 #N] 마커에 활용 가능, 그대로 베끼지 말고 변형 권장):\n${imageAnalysis.image_descriptions.map((d, i) => `  #${i + 1}: ${d}`).join("\n")}`
-          : "",
+        "===== 사진별 사전 묘사 (Gemini Flash, 사진 1장씩 도출 — 본문에 직접 반영) =====",
+        ...imageAlts.map((a) =>
+          [
+            `#${a.idx} (${a.file}):`,
+            `  alt: ${a.alt}`,
+            a.marker_label ? `  marker_label: ${a.marker_label}` : "",
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        ),
         "",
-        "위 분석을 본문 페르소나·후크·중반 에피소드에 직접 반영하라. 추천 페르소나를 그대로 채택해 글 전체 (오프닝~CTA) 를 그 시점에서 일관되게 쓴다 (운영자 메모가 다른 페르소나를 강하게 시사하지 않는 한). hook_seed 는 첫 단락 후크 또는 중반 에피소드에서 구체적으로 사용 — 무시하고 일반 '오늘도 카페 같은 분위기에서~' 류로 회귀하지 말 것.",
+        "활용 지침:",
+        "- 위 alt 는 사진 1장씩 LLM 이 미리 관찰해 추출한 단서다. 본문 후크·중반 에피소드에 사진별 특이점(조명·옷차림·테이블 위 자료·인물 구성 등)을 구체적으로 반영하라. 모든 사진을 '카페 같은 분위기에서~' 류 일반론으로 회귀시키지 말 것.",
+        "- 페르소나는 사진(들) + alt + 운영자 메모를 종합해 naver-style.md §1 의 7개 페르소나 중 **하나만** 선택하고 글 전체 (오프닝~CTA) 에서 일관 유지.",
+        channel === "naver"
+          ? "- 네이버 본문의 `[이미지 #N: ...]` 마커 자리에는 위 `marker_label` 을 그대로 사용해도 좋다 (15자 이내, 자체 관찰과 결합해 변형 가능). 같은 사진을 두 번 묘사하지 말 것."
+          : "",
         "",
       ].filter(Boolean)
     : [];

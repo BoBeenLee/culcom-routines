@@ -1,12 +1,29 @@
 #!/usr/bin/env node
-// 첨부 이미지를 Gemini Flash 로 한 번에 묶어 분석해 본문 작성 단서 텍스트를 추출.
-// draft.mjs 가 결과를 prompt 에 inject 하면 본문이 사진에서 도출된 페르소나·
-// 후크 씨앗을 명시적으로 사용하게 되어 동질화 (글마다 같은 골격으로 수렴) 가 완화된다.
+// 첨부 이미지를 Gemini Flash 로 **한 장씩** 분석해 사진별 alt 문장과 마커 라벨을
+// 추출한다. draft.mjs 가 결과를 prompt 에 inject 하면 LLM 이 사진별 단서를 본문
+// 후크·중반 에피소드에 명시적으로 반영하기가 쉬워져 동질화가 완화된다.
+//
+// 묶음 1회 호출 대신 사진별 N회 호출을 쓰는 이유:
+// - 사진별 묘사가 15자로 압축되지 않고 50~150자 풍부하게 추출됨.
+// - 사진 #N ↔ 묘사 #N 매핑이 정확 (describe-images.mjs:142 주석 참고 — 배치
+//   호출은 출력 순서가 어긋나는 경우가 보고됨).
 //
 // 입력: outputs/issue.json, outputs/images.json (extract-images 산출물)
 // 출력: outputs/image-analysis.json
-//   { mood, scene, people, persona_candidate, persona_rationale, hook_seed, image_descriptions }
-// 실패·이미지 0장 시 fallback 구조만 저장하고 exit 0 (파이프라인 계속 진행).
+//   {
+//     image_alts: [
+//       { idx, file, alt(50~150자 풍부 묘사), marker_label(15자 이내) },
+//       ...
+//     ],
+//     _model, _count
+//   }
+//
+// 페르소나·후크 씨앗·묶음 분위기 같은 reduce 결과는 이 단계에서 산출하지 않는다.
+// draft.mjs 가 사진별 alt + 사진 원본 + 운영자 메모를 종합해 직접 결정한다
+// (naver-style.md §1 페르소나 선택 규칙).
+//
+// 사진별 호출 실패 시 그 사진은 alt/marker_label 빈 값으로 두고 다음 사진으로
+// 진행 (idempotent, 일부 실패해도 파이프라인 계속).
 
 import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
@@ -15,90 +32,52 @@ import path from "node:path";
 const ROOT = process.cwd();
 const OUT_DIR = path.resolve("outputs");
 const IMAGES_JSON = path.join(OUT_DIR, "images.json");
-const ISSUE_JSON = path.join(OUT_DIR, "issue.json");
 const OUT = path.join(OUT_DIR, "image-analysis.json");
+const MODEL = "gemini-2.5-flash";
 
 await mkdir(OUT_DIR, { recursive: true });
 
 const images = JSON.parse(await readFile(IMAGES_JSON, "utf8"));
-const issue = JSON.parse(await readFile(ISSUE_JSON, "utf8"));
-
-const fallback = {
-  mood: "",
-  scene: "",
-  people: "",
-  persona_candidate: "",
-  persona_rationale: "",
-  hook_seed: "",
-  image_descriptions: [],
-  _note: "image analysis fallback",
-};
 
 if (!images.downloaded || images.downloaded.length === 0) {
   console.log("[analyze-images] no images; skip");
   await writeFile(
     OUT,
-    JSON.stringify({ ...fallback, _note: "no images" }, null, 2),
+    JSON.stringify(
+      { image_alts: [], _model: MODEL, _count: 0, _note: "no images" },
+      null,
+      2,
+    ),
     "utf8",
   );
   process.exit(0);
 }
 
-// naver-style.md §1 의 7개 페르소나와 동일한 라벨. 모델이 그대로 출력하도록 지시.
-const personas = [
-  "직장인 회원 (해외영업·법카·바쁜 직장인)",
-  "아이 엄마 / 영유맘 / 7세 학부모",
-  "왕초보 / 영어 울렁증 (40대 abcd 도전기 포함)",
-  "장기 회원 (6개월~1년차) 달라진 점 / 프리토킹 도달기",
-  "컬컴 조교 시점",
-  "외국인 친구·데이트·계절 테마형",
-  "여행/비즈니스 영어 테마형",
-];
+function buildPrompt(imagePath) {
+  return [
+    `@${imagePath}`,
+    "",
+    "이 컬컴 하남 영어회화 스터디 사진 1장을 블로그 본문 작성용으로 자세히 묘사하라.",
+    "",
+    "다음 JSON 스키마로만 출력. 코드블록·서두·맺음말·설명 없이 JSON 객체만:",
+    "{",
+    `  "alt": "이 사진의 분위기·시간대·장소·소품·인물 활동·표정·구도를 종합한 풍부한 묘사. 60~150자 한국어. 본문 후크·중반 에피소드의 씨앗으로 쓸 수 있을 만큼 구체적으로. 매장 일반론('카페 같은 분위기') 보다 이 사진만의 특이점(조명·옷차림·테이블 위 자료·인물 구성·창밖 풍경 등)을 우선.",`,
+    `  "marker_label": "네이버 [이미지 #N: __] 마커 자리에 들어갈 한 줄 라벨. 15자 이내. 분위기·구도·소품 중심 (예: '멤버분들이 둘러앉아 발표 자료 보는 모습')."`,
+    "}",
+    "",
+    "규칙:",
+    "- 사진에서 확인되지 않는 사실 만들지 말 것.",
+    "- 실명·식별 가능한 외모 묘사 금지. 인물은 \"멤버분\", \"리더님\", \"외국인 친구\", \"조교님\" 등으로만.",
+    "- 카카오 QR/로고 사진은 alt 에 \"카카오 채널 안내 이미지\" 류, 네이버 지도 위젯은 \"매장 위치 지도\" 류로.",
+    "- JSON 외 텍스트 출력 금지 (`update_topic(...)`, `<ctrl##>`, `strategic_intent:` 같은 도구호출 누출 절대 금지).",
+  ].join("\n");
+}
 
-const imageCount = images.downloaded.length;
-const imageRefs = images.downloaded
-  .map((d, i) => `@${path.relative(ROOT, d.file)} (#${i + 1})`)
-  .join(" ");
-
-const prompt = [
-  imageRefs,
-  "",
-  "너는 컬컴 하남 영어회화 스터디 블로그 글의 사전 사진 분석 담당이다.",
-  `첨부된 ${imageCount}장 사진을 한 묶음으로 관찰하고, 본문 작성에 사용할 단서를 추출하라.`,
-  "",
-  "운영자 메모 (페르소나 선택 시 우선 반영):",
-  `- 주제: ${issue.subject || "(없음)"}`,
-  `- 분위기: ${issue.vibe || "(없음)"}`,
-  `- 기준일: ${issue.when || ""}`,
-  "",
-  "다음 JSON 스키마로만 출력. 코드블록·서두·맺음말·설명 없이 JSON 객체만:",
-  "{",
-  `  "mood": "사진 묶음 전체 분위기·계절감·시간대 (한 줄, 30자 이내)",`,
-  `  "scene": "장소·소품·테이블 위 자료 등 보이는 단서 (1~2줄, 80자 이내)",`,
-  `  "people": "인물 수·활동·구성 (한 줄, 40자 이내. 실명·외모 묘사 금지)",`,
-  `  "persona_candidate": "아래 7개 중 하나의 이름을 그대로",`,
-  `  "persona_rationale": "왜 그 페르소나인지 한 줄 (30자 이내)",`,
-  `  "hook_seed": "본문 후크의 씨앗이 될 만한 이 사진 묶음만의 차별 단서 1~2개 (60자 이내. 예: '늦은 오후 햇살의 카페형 매장', '외국인 친구와 카드 게임', '저녁 7시 가득 찬 매장'). 매장 일반론 말고 이 사진들만의 특이점.",`,
-  `  "image_descriptions": ["#1 묘사 15자 이내", "#2 ...", "..."]`,
-  "}",
-  "",
-  "persona_candidate 후보 (이 중 하나만 그대로 복사):",
-  ...personas.map((p, i) => `${i + 1}. ${p}`),
-  "",
-  "규칙:",
-  "- 사진에서 확인되지 않는 사실 만들지 말 것.",
-  "- 실명·식별 가능한 외모 묘사 금지. 인물은 \"멤버분\", \"리더님\", \"외국인 친구\", \"조교님\" 등으로만.",
-  "- 카카오 QR/로고 사진은 \"카카오 채널 안내 이미지\", 네이버 지도 위젯은 \"매장 위치 지도\" 같은 식으로.",
-  `- image_descriptions 배열 길이는 정확히 ${imageCount} (각 사진에 1:1 대응, 첨부 순서대로 #1..#${imageCount}).`,
-  "- 운영자 메모(주제·분위기)가 비어있지 않으면 그것을 페르소나 선택에 우선 반영. 모호하거나 비어있으면 사진 단서로 결정.",
-  "- JSON 외 텍스트 출력 금지 (`update_topic(...)`, `<ctrl##>`, `strategic_intent:` 같은 도구호출 누출 절대 금지).",
-].join("\n");
-
-function runGemini(p) {
+function runGemini(prompt) {
   return new Promise((resolve, reject) => {
     const child = spawn(
       "gemini",
-      ["--yolo", "-m", "gemini-2.5-flash", "-p", p],
+      ["--yolo", "-m", MODEL, "-p", prompt],
       {
         env: { ...process.env, GEMINI_CLI_TRUST_WORKSPACE: "true" },
         stdio: ["ignore", "pipe", "pipe"],
@@ -127,31 +106,62 @@ function extractJson(text) {
   }
 }
 
-let analysis;
-try {
-  console.log(`[analyze-images] gemini-flash, images=${imageCount}`);
-  const out = await runGemini(prompt);
-  const parsed = extractJson(out);
-  if (
-    parsed &&
-    typeof parsed.persona_candidate === "string" &&
-    parsed.persona_candidate.trim().length > 0
-  ) {
-    analysis = { ...fallback, ...parsed };
-    delete analysis._note;
-    console.log(`[analyze-images] parsed ok. persona=${parsed.persona_candidate}`);
-    if (parsed.hook_seed) console.log(`[analyze-images] hook_seed=${parsed.hook_seed}`);
-  } else {
-    console.warn(
-      `[analyze-images] parse fail / missing persona_candidate. raw head:\n${out.slice(0, 500)}`,
-    );
-    analysis = { ...fallback, _note: "parse fail or missing persona_candidate" };
-  }
-} catch (e) {
-  console.warn(`[analyze-images] gemini fail: ${e.message}`);
-  analysis = { ...fallback, _note: `gemini error: ${e.message.slice(0, 200)}` };
+// alt 가 너무 짧거나 도구호출 누출이 섞인 경우 거부.
+function isUsable(parsed) {
+  if (!parsed) return false;
+  if (typeof parsed.alt !== "string" || parsed.alt.trim().length < 10) return false;
+  if (typeof parsed.marker_label !== "string") return false;
+  const blob = `${parsed.alt} ${parsed.marker_label}`;
+  if (/strategic_intent|<ctrl|update_topic|tool_call|function_call/i.test(blob)) return false;
+  return true;
 }
 
-await writeFile(OUT, JSON.stringify(analysis, null, 2), "utf8");
-console.log(`[analyze-images] wrote ${OUT}`);
-console.log(JSON.stringify(analysis, null, 2));
+function trimLabel(s, max) {
+  const t = (s || "").replace(/\s+/g, " ").trim();
+  return t.length > max ? t.slice(0, max) : t;
+}
+
+const imageAlts = [];
+let ok = 0;
+for (let i = 0; i < images.downloaded.length; i++) {
+  const idx = i + 1;
+  const d = images.downloaded[i];
+  const rel = path.relative(ROOT, d.file);
+  process.stdout.write(`[analyze-images] #${idx}/${images.downloaded.length} ${rel}: `);
+  let parsed = null;
+  try {
+    const out = await runGemini(buildPrompt(rel));
+    parsed = extractJson(out);
+    if (!isUsable(parsed)) {
+      console.log(`parse/usability fail; raw head: ${out.slice(0, 120).replace(/\n/g, " ")}`);
+      parsed = null;
+    }
+  } catch (e) {
+    console.log(`gemini fail (${e.message.slice(0, 100)})`);
+  }
+  if (parsed) {
+    const alt = parsed.alt.trim();
+    const marker_label = trimLabel(parsed.marker_label, 30);
+    imageAlts.push({ idx, file: rel, alt, marker_label });
+    ok++;
+    console.log(`ok — label="${marker_label}" alt[${alt.length}]`);
+  } else {
+    imageAlts.push({ idx, file: rel, alt: "", marker_label: "" });
+  }
+}
+
+await writeFile(
+  OUT,
+  JSON.stringify(
+    {
+      image_alts: imageAlts,
+      _model: MODEL,
+      _count: imageAlts.length,
+      _ok: ok,
+    },
+    null,
+    2,
+  ),
+  "utf8",
+);
+console.log(`[analyze-images] wrote ${OUT} (${ok}/${imageAlts.length} ok)`);
