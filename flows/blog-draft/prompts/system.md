@@ -10,7 +10,7 @@
 - 주소: 경기도 하남시 미사강변중앙로204번길 22 마이움센트럴아케이드 201호, 202호
 - 위치 한 줄: 5호선 미사역 2번출구 도보 3분, 주차 가능
 - 전화: 010-2946-0553
-- 카카오톡 링크 (네이버 블로그용): `https://pf-link.kakao.com/qr/_xeMISK/pages/_Hxh?query=state=hanam,wsblog`
+- 카카오톡 링크 (네이버 블로그용): `https://pf-link.kakao.com/qr/_xeMISK/pages/_Hxh?query=state=hanam,blog`
 - 카카오톡 링크 (인스타 프로필 링크): `pf-link.kakao.com/qr/_xeMISK/pages/_Hxh?query=state=hanam,instanoad,1`
 - 당근 비즈니스 프로필: https://www.daangn.com/kr/local-profile/%EC%BB%AC%EC%BB%B4-%EC%98%81%EC%96%B4%ED%9A%8C%ED%99%94-%ED%95%98%EB%82%A8-9731ij4zf1sd/
 - 네이버 블로그: https://blog.naver.com/culcom-

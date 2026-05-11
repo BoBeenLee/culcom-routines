@@ -58,11 +58,16 @@ function naverLengthGuide(imageCount) {
     "  네이버 지도 위젯 (선택):",
     "  `[**네이버지도**컬컴 하남점map.naver.com](https://map.naver.com/p/entry/place/1965780250)`",
     "",
-    "  카카오 채널 링크 (CTA 끝, 카카오 안내 이미지 마커 직후 — query 는 반드시 state=hanam,wsblog):",
-    "  `[**카카오톡**pf-link.kakao.com](https://pf-link.kakao.com/qr/_xeMISK/pages/_Hxh?query=state=hanam,wsblog)`",
+    "  카카오 채널 링크 (CTA 끝, 카카오 안내 이미지 마커 직후 — query 는 반드시 state=hanam,blog):",
+    "  `[**카카오톡**pf-link.kakao.com](https://pf-link.kakao.com/qr/_xeMISK/pages/_Hxh?query=state=hanam,blog)`",
     "",
     "- 위 chrome 블록은 글자·괄호·URL 한 글자도 바꾸지 말 것. 줄바꿈 넣지 말 것 (반드시 single-line).",
     "- plain `[카카오톡](url)` 으로 압축하거나 다른 query 값 사용 금지.",
+    "",
+    "[줄바꿈 규칙 — 한 줄 24자 이내]",
+    "- 본문 한 줄에 글자 수가 24를 넘기지 않도록 어절(공백) 경계에서 줄바꿈해 짧게 끊어 쓸 것.",
+    "- 25자 이상 한 줄에 몰아쓰지 말고, 길어지면 자연스러운 위치에서 별도 줄로 분리.",
+    "- 단, 위젯 chrome 라인 (매장 박스 / 지도 / 카카오) 과 마지막 해시태그 한 줄은 single-line 유지가 우선 — 24자 넘어도 줄바꿈 금지.",
     "",
     "[모델 누출 금지]",
     "- `update_topic(...)`, `<ctrl##>`, `strategic_intent:`, `tool_call`, `function_call` 같은 도구호출 메타데이터 절대 출력 금지.",
@@ -208,10 +213,21 @@ function injectImageUrlsForNaver(draft) {
   );
 }
 
+// mtnb 가 생성한 HTML 의 plain `<p>...</p>` 본문 단락만 중앙정렬 (issue #11).
+// 리스트는 `<p class="se-text-paragraph se-text-paragraph-align-left" ...>` 형태로
+// class 속성을 갖고 출력되므로 plain `<p>` 만 정확히 매칭하면 본문만 잡힌다.
+// `<p>&nbsp;</p>` 같은 간격 단락은 시각적 영향 없으니 그대로 둔다.
+function applyCenterAlignToBodyParagraphs(html) {
+  return html.replace(
+    /<p>(?!&nbsp;<\/p>)([\s\S]*?)<\/p>/g,
+    '<p style="text-align: center;">$1</p>',
+  );
+}
+
 // Gemini가 출력한 마크다운을 mtnb로 변환해 제목/본문 마크다운/HTML을 얻는다.
 // - title: 첫 H1 텍스트
 // - bodyMd: H1 한 줄을 제거한 마크다운 (GitHub 코멘트 미리보기용)
-// - html: 네이버 에디터 호환 HTML (운영자 클립보드 복사용)
+// - html: 네이버 에디터 호환 HTML (운영자 클립보드 복사용, 본문 단락 중앙정렬 적용)
 function convertNaver(rawMarkdown) {
   let md = rawMarkdown.replace(/\r\n/g, "\n").trim();
   // Gemini가 가끔 ```markdown ... ``` 으로 감싸는 경우 벗겨낸다.
@@ -223,10 +239,11 @@ function convertNaver(rawMarkdown) {
   if (firstH1) {
     bodyMd = md.slice(firstH1[0].length).trimStart();
   }
+  const html = applyCenterAlignToBodyParagraphs(result.html || "");
   return {
     title: (result.title || (firstH1 ? firstH1[1].trim() : "")).trim(),
     bodyMd,
-    html: result.html || "",
+    html,
     errors: result.errors || [],
   };
 }

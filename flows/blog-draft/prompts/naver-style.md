@@ -32,6 +32,7 @@
 | 15장+ | 3,500~5,500 | 14~20 | 테마 후크 + 본문 + 위치 안내까지 다 포함 |
 
 - 한 단락 2~6줄. **줄바꿈 잦음** — 한 문장씩 끊어서 별도 줄로 쓰는 패턴이 흔함 (모바일 가독성).
+- **한 줄당 24자 이내 (mobile 기준)** — 본문 한 줄에 글자 수가 24를 넘기지 않도록 어절·구 단위로 줄바꿈. 25자 이상 한 줄에 몰아쓰지 말 것. 위 "줄바꿈 잦음" 패턴을 한 단계 더 강하게 적용한다고 보면 된다. 예외: 위젯 chrome 한 줄 (매장 박스 / 지도 / 카카오) 과 마지막 해시태그 한 줄은 single-line 유지가 우선이라 24자 제한 적용 안 함.
 - 단락 사이 빈 줄에 zero-width space (`​`) 가 들어간 줄이 흔하지만 mtnb 가 알아서 처리하므로 draft 는 일반 빈 줄로 둬도 무방.
 - 본문 안 이미지 위치는 `[이미지 #N: 짧은 묘사]` 한 줄로 표시. 첨부된 모든 사진(N=1..imageCount)이 본문 어딘가에 정확히 한 번씩 등장해야 함.
   - 예: `[이미지 #1: 멤버분들이 둘러앉아 발표 자료 보는 모습]`
@@ -42,7 +43,7 @@
   - 네이버 지도 위젯 (예: `224249814155.md`):
     `[**네이버지도**컬컴 하남점map.naver.com](https://map.naver.com/p/entry/place/1965780250)`
   - 카카오 채널 링크 (모든 샘플 CTA 끝):
-    `[**카카오톡**pf-link.kakao.com](https://pf-link.kakao.com/qr/_xeMISK/pages/_Hxh?query=state=hanam,wsblog)`
+    `[**카카오톡**pf-link.kakao.com](https://pf-link.kakao.com/qr/_xeMISK/pages/_Hxh?query=state=hanam,blog)`
 - 사진의 분위기·계절감·장소·소품·인물 활동을 본문에 자연스럽게 녹임. 사진에서 보이지 않는 사실 만들지 말 것.
 
 ### 표준 골격 (이미지 4장 이상 — 후기 글의 80% 이상이 다음 흐름)
@@ -111,8 +112,8 @@
 
 ## 6. CTA·매장·연락 정보
 
-- **카카오톡 링크**: `https://pf-link.kakao.com/qr/_xeMISK/pages/_Hxh?query=state=hanam,wsblog`
-  - **반드시 `state=hanam,wsblog`** — 다른 지점 query 절대 금지. (참고: reference 샘플은 본 가이드 도입 이전 글이라 `state=hanam,blog` / `state=hanam,blog,1` 으로 되어 있던 것을 canonical 형태로 정규화함.)
+- **카카오톡 링크**: `https://pf-link.kakao.com/qr/_xeMISK/pages/_Hxh?query=state=hanam,blog`
+  - **반드시 `state=hanam,blog`** — 다른 지점 prefix · 다른 query 값 금지.
   - **출력 형식**: §2 의 카카오 채널 raw chrome 블록을 그대로 출력 (3 줄 마크다운 링크).
 - **매장 박스**: §2 의 매장 박스 raw chrome 블록 (`[**컬컴 하남점**\n\n주소...](#)`) 그대로 출력. 본문 단락 안에서 매장명·주소를 추가로 언급하는 것은 OK.
 - **지도 위젯** (선택): §2 의 네이버 지도 raw chrome 블록 그대로 출력. 매장 박스와 가까운 위치에 두는 경우가 흔함 (예: `224249814155.md`).
@@ -134,7 +135,7 @@
 - **다른 지점명 (잠실·분당) 언급 금지**. 매장 박스 / 주소 / 카카오 query / 본문 어디에도.
 - **학습 콘텐츠 단독 글 X**. 표현 강의가 본문의 50% 이상이면 안 됨. "오늘의 표현"은 양념으로 짧게만.
 - **위젯 chrome 정확한 형식 준수** — §2 / §6 의 canonical single-line raw chrome 과 글자 단위로 동일하게 출력 (운영자가 그대로 붙여넣었을 때 카드로 렌더되는 형태).
-  - 카카오 query 는 반드시 `state=hanam,wsblog`. 다른 값 (`,blog`, `,blog,1`, `,instanoad`, 다른 지점 prefix 등) 금지.
+  - 카카오 query 는 반드시 `state=hanam,blog`. 다른 값 (`,wsblog`, `,instanoad`, `,instanoad,1`, 다른 지점 prefix 등) 금지.
   - 매장 카드 link target 은 `(#)`, 지도 카드는 `(https://map.naver.com/p/entry/place/1965780250)`. URL 임의로 바꾸지 말 것.
   - 줄바꿈 절대 금지 — 모든 chrome 은 `[**라벨**컨텐츠...](url)` single-line 한 줄.
   - 자유 형식 (plain `[카카오톡](url)`, 라벨 없이 등) 금지.
