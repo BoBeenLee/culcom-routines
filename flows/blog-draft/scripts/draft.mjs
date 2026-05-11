@@ -20,32 +20,6 @@ const trends = JSON.parse(await readFile(path.join(OUT_DIR, "trends.json"), "utf
 const images = JSON.parse(await readFile(path.join(OUT_DIR, "images.json"), "utf8"));
 const systemMd = await readFile(path.join(PROMPTS_DIR, "system.md"), "utf8");
 
-// image-analysis.json: analyze-images.mjs (Gemini Flash, 사진별 N회 호출) 산출물.
-// 사진별 alt(50~150자) + 마커 라벨(15자 이내) 을 prompt 에 inject 해 본문 동질화를
-// 완화한다. 페르소나·후크는 draft.mjs 가 사진 원본 + alt + 운영자 메모를 종합해
-// 직접 결정 (naver-style.md §1 페르소나 선택 규칙).
-//
-// 파일 없거나 image_alts 가 비어있으면 inject 건너뜀 (analyze-images 단계가 없거나
-// 모두 실패한 경우에도 draft 는 그대로 동작).
-let imageAlts = [];
-try {
-  const parsed = JSON.parse(
-    await readFile(path.join(OUT_DIR, "image-analysis.json"), "utf8"),
-  );
-  if (parsed && Array.isArray(parsed.image_alts)) {
-    imageAlts = parsed.image_alts.filter(
-      (a) => a && (typeof a.alt === "string") && a.alt.trim().length > 0,
-    );
-    console.log(
-      `[draft] image-analysis loaded. alts=${imageAlts.length}/${parsed.image_alts.length}`,
-    );
-  } else {
-    console.log(`[draft] image-analysis present but no image_alts; skip inject`);
-  }
-} catch {
-  console.log(`[draft] image-analysis.json not found; skip inject`);
-}
-
 const styleFiles = {
   naver: "naver-style.md",
   insta: "ig-style.md",
@@ -147,39 +121,6 @@ function buildPrompt({ channel, style }) {
     .join(" ");
   const lengthGuide =
     channel === "naver" ? naverLengthGuide(imageCount) : igLengthGuide(imageCount);
-  // analyze-images.mjs 산출물 (있을 때만 inject). 사진별 풍부 묘사(alt) + 마커
-  // 라벨을 그대로 전달. 페르소나·후크는 LLM 이 사진 원본 + alt + 운영자 메모로
-  // 직접 결정 (naver-style.md §1 페르소나 선택 규칙 참고).
-  const analysisLines = imageAlts.length
-    ? [
-        "===== 사진별 사전 묘사 (Gemini Flash, 사진 1장씩 6차원 관찰 — 본문에 직접 반영) =====",
-        ...imageAlts.map((a) =>
-          [
-            `#${a.idx} (${a.file}):`,
-            a.marker_label ? `  marker_label: ${a.marker_label}` : "",
-            `  alt: ${a.alt}`,
-            a.scene ? `  scene: ${a.scene}` : "",
-            a.props ? `  props: ${a.props}` : "",
-            a.people ? `  people: ${a.people}` : "",
-            Array.isArray(a.mood_tags) && a.mood_tags.length
-              ? `  mood: ${a.mood_tags.join(", ")}`
-              : "",
-            a.distinctive ? `  distinctive: ${a.distinctive}` : "",
-          ]
-            .filter(Boolean)
-            .join("\n"),
-        ),
-        "",
-        "활용 지침:",
-        "- 위 alt/scene/props/people/mood/distinctive 는 사진 1장씩 미리 관찰한 6차원 단서다. 본문 후크·중반 에피소드 작성 시 사진별 특이점을 **구체 디테일로** 살려라 (예: '늦은 오후 햇살이 들어오는 창가 자리', '테이블 위 노란 메모지 더미', '외국인 친구와 카드를 펼친 장면'). '카페 같은 분위기에서~', '오늘도 열심히 스터디~' 류 일반론으로 흐릿하게 만들지 말 것.",
-        "- distinctive 단서는 글 전체에서 가장 차별적인 후크 — 첫 단락 또는 중심 에피소드에서 우선 활용.",
-        "- 페르소나는 사진(들) + 위 단서 + 운영자 메모를 종합해 naver-style.md §1 의 7개 페르소나 중 **하나만** 선택하고 글 전체 (오프닝~CTA) 에서 일관 유지.",
-        channel === "naver"
-          ? "- 네이버 본문의 `[이미지 #N: ...]` 마커 자리에는 위 `marker_label` 을 그대로 사용해도 좋다 (15자 이내, 자체 관찰과 결합해 변형 가능). 같은 사진을 두 번 묘사하지 말 것."
-          : "",
-        "",
-      ].filter(Boolean)
-    : [];
   return [
     imageRefs,
     "",
@@ -189,15 +130,25 @@ function buildPrompt({ channel, style }) {
     `===== 채널: ${channelLabel[channel]} 스타일 가이드 =====`,
     style,
     "",
-    `===== 이미지 입력 (총 ${imageCount}장) =====`,
-    "각 사진을 자세히 관찰해 다음을 본문에 반영하라:",
-    "- 분위기·계절감·시간대 (햇빛, 조명, 옷차림)",
-    "- 장소·소품·테이블 위 자료(있을 경우)",
-    "- 인물 수와 활동(대화·필기·웃는 모습 등) — 단, 실명·식별 가능한 외모 묘사 금지",
-    "- 컬컴 하남 매장 인테리어 단서(LP샵/카페 같은 분위기)가 보이면 자연스럽게 반영",
-    "사진에서 확인되지 않는 사실은 만들지 말 것.",
+    `===== 이미지 입력 (총 ${imageCount}장) — 6차원 관찰 + 본문 반영 =====`,
+    `첨부된 사진 ${imageCount}장을 한 장씩 다음 6차원으로 관찰한 뒤, 본문에 사진별 단서를 풍부하게 녹여라.`,
     "",
-    ...analysisLines,
+    "[관찰 차원 — 사진 1장마다 빠뜨림 없이]",
+    "1. **장소·인테리어·조명·시간대** — 햇빛 방향(아침/오후/저녁), 조명 색감(따뜻한/차가운), 창가/내부, LP샵·카페형 인테리어 단서.",
+    "2. **테이블 위 자료·소품** — 프린트, 노트북, 책·교재, 커피잔·음료, 메모지·필기구, 모니터·태블릿 등 보이는 사물만 (없으면 만들지 말 것).",
+    "3. **인물 수·활동·표정** — 몇 명이 무엇을 하는 중인지 (대화·필기·웃음·발표·게임·읽기 등). 실명·식별 가능한 외모(머리스타일·옷 브랜드·얼굴 특징) 묘사 금지 — \"멤버분\", \"리더님\", \"외국인 친구\", \"조교님\" 등으로만.",
+    "4. **옷차림·계절감** — 반팔/긴팔, 색감·톤, 계절 단서(가벼운 옷차림→여름, 니트→겨울 등).",
+    "5. **분위기·정서** — 아늑함·집중·활기·차분함·웃음·열기 등 톤 단어. 사진에서 직접 읽히는 정서만.",
+    "6. **이 사진만의 차별 단서** — 일반 스터디 사진과 구분되는 특이점 (창밖 풍경·단풍·비, 특정 소품 더미, 특이 활동·게임, 외국인/특수 인물 구성, 인테리어 변화 등). 이게 본문 후크의 핵심 재료다.",
+    "",
+    "[본문 활용 지침]",
+    "- 사진별 디테일을 본문 후크·중반 에피소드에 **구체 디테일로** 살려라. 예: \"늦은 오후 햇살이 비스듬히 들어오는 창가 자리에서\", \"테이블 위 노란 메모지가 어수선하게 흩어져 있고\", \"외국인 친구와 카드 게임을 펼친 장면\" 같은 식.",
+    "- '카페 같은 분위기에서~', '오늘도 열심히 스터디하시는 멤버분들~', '아늑한 조명 아래' 같은 추상·일반론으로 흐릿하게 만들지 말 것. 같은 매장의 다른 글들과 구분되어야 한다.",
+    "- 사진 6 \"차별 단서\" 가 글 전체에서 가장 차별적인 재료 — 첫 단락 후크 또는 중심 에피소드에서 우선 활용. 한 글에 1~2개 차별 단서를 정해 본문에 깊게 풀어쓰고, 나머지 사진은 부수 단서로.",
+    "- 페르소나는 사진(들) + 운영자 메모를 종합해 naver-style.md §1 의 7개 페르소나 중 **하나만** 선택하고 글 전체 (오프닝~CTA) 에서 일관 유지.",
+    "- 카카오 QR/로고 사진은 본문 마커에 \"카카오 채널 안내 이미지\" 류, 네이버 지도 위젯은 \"매장 위치 지도\" 류로.",
+    "- **사진에서 확인되지 않는 사실은 만들지 말 것** (점수·합격·등록자 수·세부 인물 정보 등). 보이는 것만, 그러나 보이는 것은 풍부하게.",
+    "",
     "===== 분량·구조 가이드 (이미지 수 기반) =====",
     lengthGuide,
     "",
