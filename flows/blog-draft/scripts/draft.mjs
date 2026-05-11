@@ -20,6 +20,29 @@ const trends = JSON.parse(await readFile(path.join(OUT_DIR, "trends.json"), "utf
 const images = JSON.parse(await readFile(path.join(OUT_DIR, "images.json"), "utf8"));
 const systemMd = await readFile(path.join(PROMPTS_DIR, "system.md"), "utf8");
 
+// image-analysis.json: analyze-images.mjs (Gemini Flash) 산출물. 페르소나·후크 씨앗
+// 같은 사진 단서 텍스트를 prompt 에 inject 해 본문 동질화를 완화한다.
+// 파일이 없거나 persona_candidate 가 비어있으면 inject 건너뜀 (워크플로우에서
+// analyze-images 단계가 없거나 실패한 경우에도 draft 는 그대로 동작).
+let imageAnalysis = null;
+try {
+  const parsed = JSON.parse(
+    await readFile(path.join(OUT_DIR, "image-analysis.json"), "utf8"),
+  );
+  if (
+    parsed &&
+    typeof parsed.persona_candidate === "string" &&
+    parsed.persona_candidate.trim().length > 0
+  ) {
+    imageAnalysis = parsed;
+    console.log(`[draft] image-analysis loaded. persona=${parsed.persona_candidate}`);
+  } else {
+    console.log(`[draft] image-analysis present but no persona_candidate; skip inject`);
+  }
+} catch {
+  console.log(`[draft] image-analysis.json not found; skip inject`);
+}
+
 const styleFiles = {
   naver: "naver-style.md",
   insta: "ig-style.md",
@@ -121,6 +144,24 @@ function buildPrompt({ channel, style }) {
     .join(" ");
   const lengthGuide =
     channel === "naver" ? naverLengthGuide(imageCount) : igLengthGuide(imageCount);
+  // analyze-images.mjs 산출물 (있을 때만 inject). 페르소나·후크 씨앗을 본문에 직접
+  // 반영하도록 명시적으로 지시 — naver-style.md §1 페르소나 선택 규칙과 연동.
+  const analysisLines = imageAnalysis
+    ? [
+        "===== 사진 사전 분석 (Gemini Flash, 위 사진 묶음에서 도출 — 본문에 직접 반영) =====",
+        `- 분위기·시간대: ${imageAnalysis.mood || "(미상)"}`,
+        `- 장면·소품: ${imageAnalysis.scene || "(미상)"}`,
+        `- 인물 구성: ${imageAnalysis.people || "(미상)"}`,
+        `- 추천 페르소나: ${imageAnalysis.persona_candidate}${imageAnalysis.persona_rationale ? ` (이유: ${imageAnalysis.persona_rationale})` : ""}`,
+        `- 후크 씨앗 (오프닝·중반 에피소드에 구체 반영): ${imageAnalysis.hook_seed || "(없음)"}`,
+        Array.isArray(imageAnalysis.image_descriptions) && imageAnalysis.image_descriptions.length
+          ? `- 사진별 묘사 참고 (네이버 [이미지 #N] 마커에 활용 가능, 그대로 베끼지 말고 변형 권장):\n${imageAnalysis.image_descriptions.map((d, i) => `  #${i + 1}: ${d}`).join("\n")}`
+          : "",
+        "",
+        "위 분석을 본문 페르소나·후크·중반 에피소드에 직접 반영하라. 추천 페르소나를 그대로 채택해 글 전체 (오프닝~CTA) 를 그 시점에서 일관되게 쓴다 (운영자 메모가 다른 페르소나를 강하게 시사하지 않는 한). hook_seed 는 첫 단락 후크 또는 중반 에피소드에서 구체적으로 사용 — 무시하고 일반 '오늘도 카페 같은 분위기에서~' 류로 회귀하지 말 것.",
+        "",
+      ].filter(Boolean)
+    : [];
   return [
     imageRefs,
     "",
@@ -138,6 +179,7 @@ function buildPrompt({ channel, style }) {
     "- 컬컴 하남 매장 인테리어 단서(LP샵/카페 같은 분위기)가 보이면 자연스럽게 반영",
     "사진에서 확인되지 않는 사실은 만들지 말 것.",
     "",
+    ...analysisLines,
     "===== 분량·구조 가이드 (이미지 수 기반) =====",
     lengthGuide,
     "",

@@ -148,6 +148,11 @@ jobs:
           echo "trends cache hit for ${{ steps.tkey.outputs.when }} — outputs/trends.json 재사용"
           jq . outputs/trends.json | head -30
 
+      - name: Analyze attached images (Gemini Flash → image-analysis.json)
+        env:
+          GEMINI_CLI_TRUST_WORKSPACE: 'true'
+        run: node flows/blog-draft/scripts/analyze-images.mjs
+
       - name: Generate drafts (per-channel artifacts only)
         env:
           GEMINI_CLI_TRUST_WORKSPACE: 'true'
