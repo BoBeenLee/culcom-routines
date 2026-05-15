@@ -1,0 +1,144 @@
+name: Corpus Refresh
+
+# 매일 KST 01:00 (UTC 16:00) 에 lazyyoyo/naver-blog-importer 로 culcom-
+# 네이버 블로그를 조회해, 새로 발행된 글을 samples/naver/ 에 누적한다.
+# 끝에서 prune-samples.mjs 가 rolling window (15개) 외 글을 archive/ 로 이동.
+#
+# 자가 성장 루프: 발행 → cron 흡수 → samples 갱신 → 다음 draft.mjs 가
+# 새 샘플 본문을 reference block 으로 주입 (top-3 최근순).
+
+on:
+  schedule:
+    - cron: "0 16 * * *"   # UTC 16:00 = KST 01:00
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: corpus-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install npm deps
+        run: npm install --no-audit --no-fund
+
+      - name: Restore Gemini OAuth credentials
+        env:
+          GEMINI_OAUTH_CREDS: ${{ secrets.GEMINI_OAUTH_CREDS }}
+        run: |
+          mkdir -p ~/.gemini
+          printf '%s' "$GEMINI_OAUTH_CREDS" | base64 -d > ~/.gemini/oauth_creds.json
+          chmod 600 ~/.gemini/oauth_creds.json
+          cat > ~/.gemini/settings.json <<'JSON'
+          {
+            "security": {
+              "auth": {
+                "selectedType": "oauth-personal"
+              }
+            }
+          }
+          JSON
+          cat > ~/.gemini/google_accounts.json <<'JSON'
+          {
+            "active": "cultisttp@gmail.com",
+            "old": []
+          }
+          JSON
+
+      - name: Install Gemini CLI
+        run: npm install -g @google/gemini-cli@0.41.1
+
+      - name: Clone naver-blog-importer
+        run: |
+          git clone --depth 1 https://github.com/lazyyoyo/naver-blog-importer.git /tmp/naver-blog-importer
+
+      - name: Install importer Python deps
+        working-directory: /tmp/naver-blog-importer/skills/naver-blog-importer
+        run: |
+          python3 -m venv .venv
+          . .venv/bin/activate
+          pip install --quiet -r requirements.txt
+
+      - name: Run importer (latest 30)
+        id: import
+        working-directory: /tmp/naver-blog-importer/skills/naver-blog-importer
+        continue-on-error: true
+        run: |
+          . .venv/bin/activate
+          python scripts/import_blog.py culcom- --out /tmp/naver-import --limit 30
+
+      - name: Detect new logNos
+        id: detect
+        run: |
+          if [ ! -d /tmp/naver-import/assets ]; then
+            echo "importer assets dir missing — likely import failed or no posts. skipping."
+            echo "new=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          ALL=$(ls /tmp/naver-import/assets 2>/dev/null | sort -u | tr '\n' ' ')
+          echo "importer logNos: ${ALL}"
+          NEW=""
+          for ln in $ALL; do
+            if [ ! -f "flows/blog-draft/prompts/samples/naver/${ln}.md" ]; then
+              if [ -z "$NEW" ]; then NEW="$ln"; else NEW="${NEW},${ln}"; fi
+            fi
+          done
+          echo "new logNos: ${NEW}"
+          echo "new=${NEW}" >> "$GITHUB_OUTPUT"
+
+      - name: Migrate new posts
+        if: steps.detect.outputs.new != ''
+        run: |
+          node flows/blog-draft/scripts/migrate-from-importer.mjs \
+            --in /tmp/naver-import \
+            --logNos "${{ steps.detect.outputs.new }}"
+
+      - name: Describe images for new posts
+        if: steps.detect.outputs.new != ''
+        env:
+          GEMINI_CLI_TRUST_WORKSPACE: 'true'
+        run: |
+          node flows/blog-draft/scripts/describe-images.mjs \
+            --samples flows/blog-draft/prompts/samples/naver \
+            --assets /tmp/naver-import/assets \
+            --logNos "${{ steps.detect.outputs.new }}"
+
+      - name: Prune to rolling window
+        run: node flows/blog-draft/scripts/prune-samples.mjs --window 15
+
+      - name: Commit and push if changed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add flows/blog-draft/prompts/samples/naver
+          if git diff --cached --quiet; then
+            echo "no corpus changes."
+            exit 0
+          fi
+          NEW="${{ steps.detect.outputs.new }}"
+          if [ -n "$NEW" ]; then
+            COUNT=$(echo "$NEW" | tr ',' '\n' | wc -l | tr -d ' ')
+            MSG="chore(corpus): add ${COUNT} new naver post(s), prune to window 15"
+          else
+            MSG="chore(corpus): prune to window 15"
+          fi
+          git commit -m "${MSG}"
+          git push origin HEAD:main
