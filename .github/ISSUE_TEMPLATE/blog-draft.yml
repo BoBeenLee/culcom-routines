@@ -1,6 +1,6 @@
 name: 블로그/인스타 글 자동 생성 (초안)
 description: 사진과 메모를 올리면 네이버 블로그·인스타 초안을 자동 생성합니다.
-title: "[2026-05-16] 스터디 블로그·인스타 자동 생성"
+title: "[2026-05-17] 스터디 블로그·인스타 자동 생성"
 labels: ["draft-request"]
 body:
   - type: markdown
