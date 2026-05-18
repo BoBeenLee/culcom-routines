@@ -4,7 +4,7 @@
 //       flows/blog-draft/prompts/system.md, prompts/{naver|ig}-style.md
 // 출력: outputs/{channel}.md, outputs/comment.md
 
-import { mkdir, writeFile, readFile } from "node:fs/promises";
+import { mkdir, writeFile, readFile, readdir } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,7 +13,9 @@ import { convert as mdToNaverHtml } from "@jjlabsio/md-to-naver-blog";
 const ROOT = process.cwd();
 const FLOW_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PROMPTS_DIR = path.join(FLOW_DIR, "prompts");
+const NAVER_SAMPLES_DIR = path.join(PROMPTS_DIR, "samples/naver");
 const OUT_DIR = path.resolve("outputs");
+const NAVER_REFERENCE_TOP_N = 3;
 
 const issue = JSON.parse(await readFile(path.join(OUT_DIR, "issue.json"), "utf8"));
 const trends = JSON.parse(await readFile(path.join(OUT_DIR, "trends.json"), "utf8"));
@@ -35,6 +37,38 @@ async function readStyle(channel) {
   } catch {
     return `# ${channelLabel[channel]} 스타일 가이드\n(가이드 파일이 비어있음 — 일반 톤으로 작성)\n`;
   }
+}
+
+// samples/naver/*.md 중 frontmatter pubDate 내림차순 top-N 의 본문 섹션을 반환한다.
+// archive/ 하위는 무시. corpus-refresh.yml 가 매일 rolling window 로 관리.
+// 각 항목: { logNo, pubDate, body } — body 는 `---` 다음 문단 그대로 (위젯 chrome,
+// 이미지 마커, 줄바꿈 모두 보존).
+async function loadRecentNaverSamples(n) {
+  let entries;
+  try {
+    entries = await readdir(NAVER_SAMPLES_DIR, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const samples = [];
+  for (const e of entries) {
+    if (!e.isFile() || !e.name.endsWith(".md")) continue;
+    const md = await readFile(path.join(NAVER_SAMPLES_DIR, e.name), "utf8");
+    const pubMatch = md.match(/^-\s*pubDate:\s*(\d{4}-\d{2}-\d{2})/m);
+    const logMatch = md.match(/^-\s*logNo:\s*(\d+)/m);
+    const sepIdx = md.indexOf("\n---\n");
+    if (sepIdx < 0) continue;
+    const body = md.slice(sepIdx + "\n---\n".length).trim();
+    samples.push({
+      logNo: logMatch ? logMatch[1] : e.name.replace(/\.md$/, ""),
+      pubDate: pubMatch ? pubMatch[1] : "",
+      body,
+    });
+  }
+  samples.sort((a, b) =>
+    (b.pubDate || "0000-00-00").localeCompare(a.pubDate || "0000-00-00"),
+  );
+  return samples.slice(0, n);
 }
 
 // 네이버 블로그: 이미지 수에 따른 분량·구조 가이드. 분량 tier 는 reference
@@ -133,13 +167,30 @@ function igLengthGuide(imageCount) {
   ].join("\n");
 }
 
-function buildPrompt({ channel, style }) {
+function buildReferenceBlock(samples) {
+  if (!samples || !samples.length) return null;
+  const lines = [
+    "===== 레퍼런스 샘플 (실제 발행글 최근 " + samples.length + "개, 톤·구조 모방 참고) =====",
+    "(아래 샘플들의 어휘·문장·이미지 캡션을 그대로 베끼지 말 것. 톤·문단 길이·섹션 흐름·위젯 위치 패턴만 참고하라. 실제 출력은 첨부된 사진과 운영자 입력 기반으로 새로 작성.)",
+    "",
+  ];
+  samples.forEach((s, i) => {
+    lines.push(`--- 샘플 ${i + 1} (logNo=${s.logNo}, pubDate=${s.pubDate}) ---`);
+    lines.push(s.body);
+    lines.push("");
+  });
+  return lines.join("\n");
+}
+
+function buildPrompt({ channel, style, samples }) {
   const imageCount = images.downloaded.length;
   const imageRefs = images.downloaded
     .map((d, i) => `@${path.relative(ROOT, d.file)} (#${i + 1})`)
     .join(" ");
   const lengthGuide =
     channel === "naver" ? naverLengthGuide(imageCount) : igLengthGuide(imageCount);
+  const referenceBlock =
+    channel === "naver" ? buildReferenceBlock(samples) : null;
   return [
     imageRefs,
     "",
@@ -149,6 +200,7 @@ function buildPrompt({ channel, style }) {
     `===== 채널: ${channelLabel[channel]} 스타일 가이드 =====`,
     style,
     "",
+    ...(referenceBlock ? [referenceBlock, ""] : []),
     `===== 이미지 입력 (총 ${imageCount}장) =====`,
     `첨부된 사진 ${imageCount}장을 자세히 관찰하고 본문에 자연스럽게 녹여라.`,
     "- 사진에서 확인되지 않는 사실 (점수·합격·등록 수 등) 은 만들지 말 것. 보이는 것만, 그러나 보이는 것은 풍부하게.",
@@ -272,7 +324,14 @@ async function main() {
   for (const channel of issue.channels) {
     console.log(`[draft] channel=${channel}, images=${images.downloaded.length}`);
     const style = await readStyle(channel);
-    const prompt = buildPrompt({ channel, style });
+    const samples =
+      channel === "naver" ? await loadRecentNaverSamples(NAVER_REFERENCE_TOP_N) : [];
+    if (channel === "naver") {
+      console.log(
+        `[draft] naver reference samples: ${samples.map((s) => `${s.logNo}@${s.pubDate}`).join(", ") || "(none)"}`,
+      );
+    }
+    const prompt = buildPrompt({ channel, style, samples });
     let raw;
     try {
       const geminiOut = await runGemini(prompt);

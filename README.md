@@ -98,9 +98,24 @@ Gemini가 멀티모달이므로 첨부 사진을 직접 읽고, 분위기·계�
   - `blog-draft.yml` precheck에서 `author_association == OWNER|MEMBER|COLLABORATOR` 만 통과시킨다. public 레포에서 외부인이 issue로 워크플로우를 트리거해 Gemini 쿼터·Actions 분량을 소진하는 abuse 방지.
   - 협업자 추가가 필요하면 Settings → Collaborators 에서 추가.
 
-## 스타일 가이드 갱신 — 네이버 샘플
+## 스타일 가이드 갱신 — 네이버 샘플 (자가 성장 corpus)
 
 네이버 본문 import 는 [lazyyoyo/naver-blog-importer](https://github.com/lazyyoyo/naver-blog-importer) Python 도구를 사용한다 (cheerio + turndown 기반 자체 스크립트는 위젯 chrome / 이미지 위치 식별이 불안정해 폐기).
+
+[corpus-refresh.yml](.github/workflows/corpus-refresh.yml) 가 매일 KST 01:00 (UTC 16:00) 에 자동 실행되어:
+
+1. importer 로 `culcom-` 블로그 최신 30개 글을 조회
+2. `samples/naver/` 에 없는 신규 logNo 만 추출
+3. `filter-hanam-logNos.mjs` 로 제목 또는 본문에 "하남" / "미사" 가 들어간 글만 통과 (다지점 글 혼입 방지 가드)
+4. `migrate-from-importer.mjs` + `describe-images.mjs` 로 신규만 처리
+5. `prune-samples.mjs --window 15` 로 rolling window 외 글을 `samples/naver/archive/` 로 이동
+6. 변경 있으면 main 브랜치에 commit + push
+
+draft.mjs 는 매 호출마다 `samples/naver/*.md` 중 pubDate 내림차순 top-3 의 본문을 reference block 으로 프롬프트에 주입한다 — corpus 가 자동 갱신되면 draft 톤도 자동으로 최신 발행 글에 정렬된다.
+
+GitHub Pages, Actions secret, 라벨은 모두 [셋업](#셋업) 절에 따라 사전 구성된다 (`GEMINI_OAUTH_CREDS` 필수).
+
+### 수동 실행 (디버깅용)
 
 ```bash
 npm ci
@@ -114,22 +129,28 @@ pip install -r requirements.txt
 # 2. images.py 패치 — host-별 type 파라미터 (이미지 다운로드 100% 성공률 위해 필수)
 #    - mblogthumb-phinf.pstatic.net 호스트: ?type=w800 추가
 #    - blogfiles.pstatic.net 호스트: type 파라미터 제거
-#    이 패치 안 하면 일부 원본 이미지가 404 로 실패한다.
+#    이 패치 안 하면 일부 원본 이미지가 404 로 실패한다. cron 워크플로우는
+#    패치 없이 동작하며 다운로드 실패한 이미지는 [이미지 #N: TBD] 로 남는다.
 
 # 3. 본문 import (예: 최신 30개)
 python scripts/import_blog.py culcom- --out /tmp/naver-import --limit 30
 
 # 4. importer 출력을 samples/naver/{logNo}.md 형식으로 옮긴다 (이미지 자리는 [이미지 #N: TBD] 로 치환)
+#    logNos 는 신규로 추가하고 싶은 글만 콤마로 나열 (cron 은 자동 감지).
 cd -  # culcom-routines 로 복귀
 node flows/blog-draft/scripts/migrate-from-importer.mjs \
   --in /tmp/naver-import \
-  --logNos 224241400842,224249814155,224254535128,224259930834,224262618982,224265989671,224267970727,224273780353,224274652408,224277603205
+  --logNos 224241400842,224249814155
 
 # 5. [이미지 #N: TBD] 마커를 Gemini Flash 로 한 줄 묘사로 채운다 (한 장씩 호출, idempotent)
 node flows/blog-draft/scripts/describe-images.mjs \
   --samples flows/blog-draft/prompts/samples/naver \
   --assets /tmp/naver-import/assets \
-  --logNos 224241400842,224249814155,224254535128,224259930834,224262618982,224265989671,224267970727,224273780353,224274652408,224277603205
+  --logNos 224241400842,224249814155
+
+# 6. rolling window 외 글을 archive/ 로 이동 (cron 도 동일 호출)
+node flows/blog-draft/scripts/prune-samples.mjs --window 15 --dry-run  # 검토
+node flows/blog-draft/scripts/prune-samples.mjs --window 15            # 실제 이동
 ```
 
 ## 스타일 가이드 갱신 — 인스타
