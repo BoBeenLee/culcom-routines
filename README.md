@@ -106,9 +106,10 @@ Gemini가 멀티모달이므로 첨부 사진을 직접 읽고, 분위기·계�
 
 1. importer 로 `culcom-` 블로그 최신 30개 글을 조회
 2. `samples/naver/` 에 없는 신규 logNo 만 추출
-3. `migrate-from-importer.mjs` + `describe-images.mjs` 로 신규만 처리
-4. `prune-samples.mjs --window 15` 로 rolling window 외 글을 `samples/naver/archive/` 로 이동
-5. 변경 있으면 main 브랜치에 commit + push
+3. `filter-hanam-logNos.mjs` 로 제목 또는 본문에 "하남" / "미사" 가 들어간 글만 통과 (다지점 글 혼입 방지 가드)
+4. `migrate-from-importer.mjs` + `describe-images.mjs` 로 신규만 처리
+5. `prune-samples.mjs --window 15` 로 rolling window 외 글을 `samples/naver/archive/` 로 이동
+6. 변경 있으면 main 브랜치에 commit + push
 
 draft.mjs 는 매 호출마다 `samples/naver/*.md` 중 pubDate 내림차순 top-3 의 본문을 reference block 으로 프롬프트에 주입한다 — corpus 가 자동 갱신되면 draft 톤도 자동으로 최신 발행 글에 정렬된다.
 

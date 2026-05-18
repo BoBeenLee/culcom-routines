@@ -6,6 +6,9 @@ name: Corpus Refresh
 #
 # 자가 성장 루프: 발행 → cron 흡수 → samples 갱신 → 다음 draft.mjs 가
 # 새 샘플 본문을 reference block 으로 주입 (top-3 최근순).
+#
+# 하남 가드: culcom- 블로그가 다지점 글을 섞어 올릴 가능성에 대비해
+# filter-hanam-logNos.mjs 로 "하남" / "미사" 키워드가 들어간 글만 통과시킨다.
 
 on:
   schedule:
@@ -102,22 +105,32 @@ jobs:
           echo "new logNos: ${NEW}"
           echo "new=${NEW}" >> "$GITHUB_OUTPUT"
 
-      - name: Migrate new posts
+      - name: Filter to Hanam posts
         if: steps.detect.outputs.new != ''
+        id: filter
+        run: |
+          FILTERED=$(node flows/blog-draft/scripts/filter-hanam-logNos.mjs \
+            --in /tmp/naver-import \
+            --logNos "${{ steps.detect.outputs.new }}")
+          echo "filtered logNos: ${FILTERED}"
+          echo "new=${FILTERED}" >> "$GITHUB_OUTPUT"
+
+      - name: Migrate new posts
+        if: steps.filter.outputs.new != ''
         run: |
           node flows/blog-draft/scripts/migrate-from-importer.mjs \
             --in /tmp/naver-import \
-            --logNos "${{ steps.detect.outputs.new }}"
+            --logNos "${{ steps.filter.outputs.new }}"
 
       - name: Describe images for new posts
-        if: steps.detect.outputs.new != ''
+        if: steps.filter.outputs.new != ''
         env:
           GEMINI_CLI_TRUST_WORKSPACE: 'true'
         run: |
           node flows/blog-draft/scripts/describe-images.mjs \
             --samples flows/blog-draft/prompts/samples/naver \
             --assets /tmp/naver-import/assets \
-            --logNos "${{ steps.detect.outputs.new }}"
+            --logNos "${{ steps.filter.outputs.new }}"
 
       - name: Prune to rolling window
         run: node flows/blog-draft/scripts/prune-samples.mjs --window 15
@@ -133,7 +146,7 @@ jobs:
             echo "no corpus changes."
             exit 0
           fi
-          NEW="${{ steps.detect.outputs.new }}"
+          NEW="${{ steps.filter.outputs.new }}"
           if [ -n "$NEW" ]; then
             COUNT=$(echo "$NEW" | tr ',' '\n' | wc -l | tr -d ' ')
             MSG="chore(corpus): add ${COUNT} new naver post(s), prune to window 15"
