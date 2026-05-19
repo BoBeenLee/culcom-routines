@@ -78,6 +78,31 @@ jobs:
           . .venv/bin/activate
           pip install --quiet -r requirements.txt
 
+      - name: Patch importer fetch.py (strip JSON-invalid \escape)
+        # Naver PostTitleListAsync 응답의 pagingHtml 필드는 \' 같은 JSON 비표준
+        # escape 를 포함해 json.loads(strict) 가 거부한다 (2026-05-18 cron 실패).
+        # _fetch_list_page 의 json.loads 직전에 invalid escape 제거 한 줄 주입.
+        # 동일 패턴이 다시 발견되면 README 의 images.py 패치 노트에 합류시킬 것.
+        working-directory: /tmp/naver-blog-importer/skills/naver-blog-importer
+        run: |
+          python3 <<'PY'
+          import pathlib
+          p = pathlib.Path('scripts/fetch.py')
+          src = p.read_text()
+          needle = '    return json.loads(text)'
+          if needle not in src:
+              raise SystemExit('upstream fetch.py shape changed; needle not found')
+          patch = (
+              '    # culcom: Naver 응답이 \\\' 등 JSON-invalid escape 를 섞어 보내는\n'
+              '    # 케이스 대응 — 알려진 유효 escape 외엔 백슬래시를 제거.\n'
+              '    text = re.sub(r\'\\\\([^"\\\\/bfnrtu])\', r\'\\1\', text)\n'
+              '    return json.loads(text)'
+          )
+          src = src.replace(needle, patch, 1)
+          p.write_text(src)
+          print('patched fetch.py')
+          PY
+
       - name: Run importer (latest 30)
         id: import
         working-directory: /tmp/naver-blog-importer/skills/naver-blog-importer
