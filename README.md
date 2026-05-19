@@ -127,10 +127,13 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
 # 2. images.py 패치 — host-별 type 파라미터 (이미지 다운로드 100% 성공률 위해 필수)
-#    - mblogthumb-phinf.pstatic.net 호스트: ?type=w800 추가
-#    - blogfiles.pstatic.net 호스트: type 파라미터 제거
-#    이 패치 안 하면 일부 원본 이미지가 404 로 실패한다. cron 워크플로우는
-#    패치 없이 동작하며 다운로드 실패한 이미지는 [이미지 #N: TBD] 로 남는다.
+#    - mblogthumb-phinf.pstatic.net 호스트: ?type=w800 강제 (제거 시 404)
+#    - 그 외 호스트: type 파라미터 제거 (원본 해상도)
+#    cron 워크플로우(corpus-refresh.yml)도 동일 패치를 자동 주입한다
+#    (step "Patch importer images.py"). 미적용 시 다운로드 실패 이미지는
+#    `[!](#)` placeholder 로 본문에 남고, migrate fallback regex 가 이를
+#    `[이미지 #N: TBD]` 로 변환해 describe 단계가 채워준다 (단, 원본 이미지가
+#    없으므로 묘사 정확도는 떨어진다 — 패치 적용이 베스트).
 
 # 3. 본문 import (예: 최신 30개)
 python scripts/import_blog.py culcom- --out /tmp/naver-import --limit 30

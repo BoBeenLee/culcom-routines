@@ -103,6 +103,40 @@ jobs:
           print('patched fetch.py')
           PY
 
+      - name: Patch importer images.py (host-별 type 파라미터)
+        # images.py 의 _original_url() 은 모든 호스트에서 ?type 을 제거하지만
+        # mblogthumb-phinf.pstatic.net 은 type=w800 이 필수 (제거 시 404).
+        # 2026-05-19 cron 26074884302 에서 다수 이미지 다운로드 실패 → 본문에
+        # `[!](#)` placeholder 잔존 → migrate 가 마커를 못 붙임.
+        # 호스트별 분기로 fix.
+        working-directory: /tmp/naver-blog-importer/skills/naver-blog-importer
+        run: |
+          python3 <<'PY'
+          import pathlib
+          p = pathlib.Path('scripts/images.py')
+          src = p.read_text()
+          needle = (
+              '    # Remove \'type\' query param — Naver uses type=w80, w966, etc.\n'
+              '    query = [(k, v) for (k, v) in parse_qsl(parsed.query) if k.lower() != "type"]\n'
+              '    return urlunparse(parsed._replace(query=urlencode(query)))'
+          )
+          if needle not in src:
+              raise SystemExit('upstream images.py shape changed; needle not found')
+          patch = (
+              '    # culcom: host-별 type 파라미터 분기.\n'
+              '    # mblogthumb-phinf.pstatic.net 은 type=w800 필수 (제거 시 404).\n'
+              '    # 그 외 호스트는 type 제거 (원본 해상도).\n'
+              '    host = (parsed.hostname or "").lower()\n'
+              '    query = [(k, v) for (k, v) in parse_qsl(parsed.query) if k.lower() != "type"]\n'
+              '    if host == "mblogthumb-phinf.pstatic.net":\n'
+              '        query.append(("type", "w800"))\n'
+              '    return urlunparse(parsed._replace(query=urlencode(query)))'
+          )
+          src = src.replace(needle, patch, 1)
+          p.write_text(src)
+          print('patched images.py')
+          PY
+
       - name: Run importer (latest 30)
         id: import
         working-directory: /tmp/naver-blog-importer/skills/naver-blog-importer
